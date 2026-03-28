@@ -120,7 +120,8 @@ export async function generateImageDescriptionsWithText(
   textStyle,
   count,
   excludedTexts = [],
-  characterStance = ''
+  characterStance = '',
+  characterDescription = ''
 ) {
   try {
     const genAI = new GoogleGenerativeAI(apiKey)
@@ -148,6 +149,7 @@ ${excludedTexts.map(text => `- "${text}"`).join('\n')}
 
     const prompt = `你是一個專業的 LINE 貼圖設計師。根據以下主題和文字風格，生成 ${count} 個不同的貼圖圖片描述和要添加的文字。
 
+角色描述：${characterDescription || '（未提供）'}
 主題說明：${theme}
 文字風格：${textStyle}
 ${stancePrompt}
@@ -473,4 +475,111 @@ ${excludedTextsSection}
     console.error('Gemini API 錯誤:', error)
     throw new Error(`生成圖片描述失敗: ${error.message}`)
   }
+}
+
+/**
+ * 生成單張貼圖的描述和文字
+ */
+export async function generateSingleDescription(
+  apiKey,
+  theme,
+  textStyle,
+  characterDescription = '',
+  existingTexts = [],
+  characterStance = ''
+) {
+  const genAI = new GoogleGenerativeAI(apiKey)
+  const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' })
+
+  const stancePrompt = characterStance?.trim()
+    ? `\n角色立場/語氣描述：${characterStance.trim()}`
+    : ''
+
+  const existingList = existingTexts.filter(Boolean)
+  const avoidPrompt = existingList.length > 0
+    ? `\n⚠️ 不能使用以下已存在的文字：${existingList.join('、')}`
+    : ''
+
+  const prompt = `你是一個專業的 LINE 貼圖設計師。根據以下資訊，生成 1 個貼圖的圖片描述和文字。
+
+角色描述：${characterDescription || '（未提供）'}
+主題說明：${theme}
+文字風格：${textStyle}${stancePrompt}${avoidPrompt}
+
+要求：
+- 文字 1-5 個字，簡短有力
+- 描述要簡潔��確，適合圖片生成
+- 風格適合 LINE 貼圖
+
+以 JSON 格式輸出：{"description": "描述", "text": "文字"}
+直接輸出 JSON，不要其他說明。`
+
+  const result = await model.generateContent(prompt)
+  const response = await result.response
+  const text = response.text()
+
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    const item = JSON.parse(jsonMatch[0])
+    return {
+      description: item.description || item.desc || '貼圖描述',
+      text: (item.text || item.txt || '文字').trim()
+    }
+  }
+  throw new Error('無法解析 AI 回應')
+}
+
+/**
+ * AI 生成單張貼圖的文字（避開已使用的文字）
+ */
+export async function generateSingleText(
+  apiKey, theme, textStyle, characterDescription = '', existingTexts = [], characterStance = ''
+) {
+  const genAI = new GoogleGenerativeAI(apiKey)
+  const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' })
+
+  const stancePrompt = characterStance?.trim() ? `\n角色立場/語氣描述：${characterStance.trim()}` : ''
+  const avoidPrompt = existingTexts.filter(Boolean).length > 0
+    ? `\n⚠️ 不能使用以下已存在的文字：${existingTexts.filter(Boolean).join('、')}` : ''
+
+  const prompt = `你是一個專業的 LINE 貼圖設計師。根據以下資訊，生成 1 個貼圖文字。
+
+角色描述：${characterDescription || '（未提供）'}
+主題說明：${theme}
+文字風格：${textStyle}${stancePrompt}${avoidPrompt}
+
+要求：文字 1-5 個字，簡短有力，適合 LINE 貼圖。
+直接輸出文字本身，不要引號、不要其他說明。`
+
+  const result = await model.generateContent(prompt)
+  return result.response.text().trim().replace(/^["'「」]|["'「」]$/g, '')
+}
+
+/**
+ * AI 根據文字生成單張貼圖的圖片描述
+ */
+export async function generateSingleDescriptionFromText(
+  apiKey, theme, textStyle, characterDescription = '', stickerText = '', characterStance = ''
+) {
+  const genAI = new GoogleGenerativeAI(apiKey)
+  const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' })
+
+  const stancePrompt = characterStance?.trim() ? `\n角色立場/語氣描述：${characterStance.trim()}` : ''
+
+  const prompt = `你是一個專業的 LINE 貼圖設計師。根據以下資訊，為一張貼圖生成圖片場景描述。
+
+角色描述：${characterDescription || '（未提供）'}
+主題說明：${theme}
+文字風格：${textStyle}
+這張貼圖的文字：「${stickerText}」${stancePrompt}
+
+要求：
+- 根據文字「${stickerText}」的語意，描述角色在這張貼圖中的表情、動作和場景
+- 描述要簡潔明確，適合用於圖片生成
+- 1-2 句話即可
+
+直接輸出描述文字，不要其他說明。`
+
+  const result = await model.generateContent(prompt)
+  return result.response.text().trim()
 }
