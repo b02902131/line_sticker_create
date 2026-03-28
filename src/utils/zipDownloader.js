@@ -24,11 +24,13 @@ function dataURLtoBlob(dataUrl) {
  * @param {string} mainImage - 主要圖片 Data URL
  * @param {string} tabImage - 標籤圖片 Data URL
  * @param {string} theme - 主題名稱（用於檔案命名）
+ * @param {string} characterName - 角色名稱（優先用於檔案命名）
  */
-export async function downloadAsZip(images, mainImage, tabImage, theme) {
+export async function downloadAsZip(images, mainImage, tabImage, theme, characterName) {
   try {
     const zip = new JSZip()
-    const folder = zip.folder(theme || 'LINE_Stickers')
+    const safeName = (characterName || theme || 'LINE_Stickers').replace(/[\/\\:*?"<>|]/g, '_')
+    const folder = zip.folder(safeName)
 
     // 添加主要圖片
     if (mainImage) {
@@ -72,7 +74,7 @@ export async function downloadAsZip(images, mainImage, tabImage, theme) {
     const url = URL.createObjectURL(zipBlob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${theme || 'LINE_Stickers'}_${new Date().getTime()}.zip`
+    link.download = `${safeName}_${new Date().getTime()}.zip`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
