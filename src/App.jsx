@@ -1,38 +1,164 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import './App.css'
-import { generateImageDescriptionsWithText, generateTextStyle } from './utils/gemini'
+import { generateImageDescriptionsWithText, generateTextStyle, generateSingleDescription, generateSingleText, generateSingleDescriptionFromText } from './utils/gemini'
 import { generateCharacter, generateStickerWithText, generateMainImage, generateTabImage, generateGrid8Image } from './utils/characterGenerator'
 import { createGrid8, splitGrid8, removeBackgroundSimple, fileToDataURL } from './utils/imageUtils'
 import { downloadAsZip } from './utils/zipDownloader'
+import { saveCharacterImages, loadCharacterImages, deleteCharacterImages } from './utils/imageStore'
+
+const LS_KEY = 'stampmill_draft'
+const LS_CHARACTERS = 'stampmill_characters'
+
+function loadDraft() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) || {} } catch { return {} }
+}
+function loadCharacters() {
+  try { return JSON.parse(localStorage.getItem(LS_CHARACTERS)) || [] } catch { return [] }
+}
 
 function App() {
-  // 步驟 1: API Key
-  const [apiKey, setApiKey] = useState('')
-  
-  // 步驟 2: 張數選擇
-  const [count, setCount] = useState(8)
-  
-  // 步驟 3: 角色描述/圖片和主題說明
-  const [characterDescription, setCharacterDescription] = useState('')
-  const [theme, setTheme] = useState('')
+  const draft = useRef(loadDraft()).current
+
+  // 頁面狀態
+  const [characters, setCharacters] = useState(loadCharacters)
+  const initChars = loadCharacters()
+  const restoredChar = draft.selectedCharacterId ? initChars.find(c => c.id === draft.selectedCharacterId) : null
+  const [selectedCharacter, setSelectedCharacter] = useState(restoredChar || null)
+  const [page, setPage] = useState(restoredChar ? 'sticker-produce' : 'home')
+
+  // 共用
+  const [apiKey, setApiKey] = useState(draft.apiKey || '')
+
+  // 角色設計
+  const [characterDescription, setCharacterDescription] = useState(restoredChar?.description || '')
+  const [theme, setTheme] = useState(restoredChar?.theme || '')
   const [uploadedCharacterImage, setUploadedCharacterImage] = useState(null)
-  
-  // 步驟 4: 角色生成/確認
-  const [characterImage, setCharacterImage] = useState(null)
-  const [characterConfirmed, setCharacterConfirmed] = useState(false)
+  const [characterImage, setCharacterImage] = useState(restoredChar?.imageDataUrl || null)
+  const [characterConfirmed, setCharacterConfirmed] = useState(!!restoredChar)
   const [generatingCharacter, setGeneratingCharacter] = useState(false)
-  
-  // 步驟 5: 文字風格描述
-  const [textStyle, setTextStyle] = useState('')
+  const [characterName, setCharacterName] = useState('')
+
+  // 貼圖生產
+  const [count, setCount] = useState(draft.count || 8)
+  const [textStyle, setTextStyle] = useState(draft.textStyle || '')
   const [generatingTextStyle, setGeneratingTextStyle] = useState(false)
   const [textStyleConfirmed, setTextStyleConfirmed] = useState(false)
-  
-  // 步驟 6: 文字描述
-  const [descriptions, setDescriptions] = useState([])
+  const [descriptions, setDescriptions] = useState(restoredChar ? loadCharDescs(restoredChar.id) : [])
   const [generatingDescriptions, setGeneratingDescriptions] = useState(false)
-  const [excludedTexts, setExcludedTexts] = useState('') // 排除的文字（每行一個）
-  const [characterStance, setCharacterStance] = useState('') // 角色立場描述（可選）
-  
+  const [excludedTexts, setExcludedTexts] = useState(draft.excludedTexts || '')
+  const [characterStance, setCharacterStance] = useState(draft.characterStance || '')
+
+  // 儲存角色到 localStorage
+  const saveCharacters = (chars) => {
+    setCharacters(chars)
+    localStorage.setItem(LS_CHARACTERS, JSON.stringify(chars))
+  }
+
+  // 儲存角色
+  const handleSaveCharacter = () => {
+    if (!characterImage) { alert('請先生成或上傳角色圖片'); return }
+    const name = characterName.trim() || theme.trim() || characterDescription.trim().slice(0, 20) || '未命名角色'
+    const newChar = {
+      id: crypto.randomUUID(),
+      name,
+      description: characterDescription,
+      theme,
+      imageDataUrl: characterImage,
+      createdAt: new Date().toISOString()
+    }
+    saveCharacters([newChar, ...characters])
+    // 重置表單
+    setCharacterDescription('')
+    setTheme('')
+    setUploadedCharacterImage(null)
+    setCharacterImage(null)
+    setCharacterConfirmed(false)
+    setCharacterName('')
+    setPage('home')
+  }
+
+  // 刪除角色
+  const handleDeleteCharacter = (id) => {
+    if (!confirm('確定要刪除這個角色嗎？')) return
+    saveCharacters(characters.filter(c => c.id !== id))
+    localStorage.removeItem(`stampmill_descs_${id}`)
+    deleteCharacterImages(id).catch(() => {})
+  }
+
+  // 讀取角色的 descriptions
+  const loadCharDescs = (charId) => {
+    try { return JSON.parse(localStorage.getItem(`stampmill_descs_${charId}`)) || [] }
+    catch { return [] }
+  }
+  const saveCharDescs = (charId, descs) => {
+    localStorage.setItem(`stampmill_descs_${charId}`, JSON.stringify(descs))
+  }
+
+  // 選角色進入生產
+  const handleSelectCharacter = async (char) => {
+    setSelectedCharacter(char)
+    setCharacterImage(char.imageDataUrl)
+    setCharacterDescription(char.description)
+    setTheme(char.theme)
+    setCharacterConfirmed(true)
+    setTextStyleConfirmed(false)
+    setDescriptions(loadCharDescs(char.id))
+    setPage('sticker-produce')
+
+    // 嘗試從 IndexedDB 恢復已保存的圖片
+    try {
+      const saved = await loadCharacterImages(char.id)
+      if (saved) {
+        if (saved.gridImages?.length > 0) setGridImages(saved.gridImages)
+        if (saved.processedGridImages?.length > 0) setProcessedGridImages(saved.processedGridImages)
+        if (saved.cutImages?.length > 0) setCutImages(saved.cutImages)
+        if (saved.mainImage) setMainImage(saved.mainImage)
+        if (saved.tabImage) setTabImage(saved.tabImage)
+        if (saved.backgroundThreshold) setBackgroundThreshold(saved.backgroundThreshold)
+        // 根據已有數據跳到對應步驟
+        if (saved.cutImages?.length > 0 && saved.mainImage && saved.tabImage) {
+          setCurrentStep(9)
+        } else if (saved.processedGridImages?.length > 0) {
+          setCurrentStep(7)
+        } else if (saved.gridImages?.length > 0) {
+          setCurrentStep(7)
+        }
+      }
+    } catch (err) {
+      console.warn('恢復圖片數據失敗:', err)
+    }
+  }
+
+  // 自動暫存到 localStorage
+  useEffect(() => {
+    const data = { apiKey, count, textStyle, excludedTexts, characterStance, selectedCharacterId: selectedCharacter?.id }
+    localStorage.setItem(LS_KEY, JSON.stringify(data))
+  }, [apiKey, count, textStyle, excludedTexts, characterStance, selectedCharacter])
+
+  // descriptions by character
+  useEffect(() => {
+    if (selectedCharacter?.id) saveCharDescs(selectedCharacter.id, descriptions)
+  }, [descriptions, selectedCharacter])
+
+  // 自動保存圖片到 IndexedDB（防抖 1 秒）
+  const saveTimerRef = useRef(null)
+  useEffect(() => {
+    if (!selectedCharacter?.id) return
+    if (gridImages.length === 0 && cutImages.length === 0) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveCharacterImages(selectedCharacter.id, {
+        gridImages,
+        processedGridImages,
+        cutImages,
+        mainImage,
+        tabImage,
+        backgroundThreshold
+      }).catch(err => console.warn('保存圖片到 IndexedDB 失敗:', err))
+    }, 1000)
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  }, [gridImages, processedGridImages, cutImages, mainImage, tabImage, selectedCharacter, backgroundThreshold])
+
   // 步驟 6-8: 8宮格生成、去背、裁切
   const [gridImages, setGridImages] = useState([]) // 8宮格圖片陣列
   const [processedGridImages, setProcessedGridImages] = useState([]) // 去背後的8宮格
@@ -46,17 +172,55 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState('')
 
-  // 處理角色圖片上傳
-  const handleCharacterUpload = async (e) => {
-    const file = e.target.files[0]
-    if (file) {
+  const [dragging, setDragging] = useState(false)
+
+  // 共用：處理圖片檔案
+  const handleImageFile = useCallback(async (file) => {
+    if (file && file.type.startsWith('image/')) {
       const dataUrl = await fileToDataURL(file)
       setUploadedCharacterImage(dataUrl)
       setCharacterImage(dataUrl)
-      // 如果上傳了角色圖片，自動確認並進入下一步
-      setCharacterConfirmed(true)
+      setCharacterConfirmed(false)
     }
+  }, [])
+
+  // 處理角色圖片上傳
+  const handleCharacterUpload = async (e) => {
+    handleImageFile(e.target.files[0])
   }
+
+  // 拖拉放
+  const handleDrop = useCallback((e) => {
+    e.preventDefault()
+    setDragging(false)
+    const file = e.dataTransfer.files[0]
+    handleImageFile(file)
+  }, [handleImageFile])
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault()
+    setDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback(() => {
+    setDragging(false)
+  }, [])
+
+  // 貼上圖片
+  useEffect(() => {
+    const handlePaste = (e) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          handleImageFile(item.getAsFile())
+          break
+        }
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [handleImageFile])
 
   // 步驟 4: 生成角色
   const handleGenerateCharacter = async () => {
@@ -73,7 +237,7 @@ function App() {
     setProgress('正在生成角色圖片...')
 
     try {
-      const character = await generateCharacter(apiKey, characterDescription || theme, uploadedCharacterImage)
+      const character = await generateCharacter(apiKey, characterDescription || theme, uploadedCharacterImage, characterDescription)
       setCharacterImage(character)
       setCharacterConfirmed(false) // 需要用戶確認
       setProgress('角色生成完成，請確認是否符合要求')
@@ -171,7 +335,8 @@ function App() {
         finalTextStyle,
         count,
         excludedTextList,
-        characterStance.trim()
+        characterStance.trim(),
+        characterDescription
       )
       setDescriptions(items)
       setProgress('文字描述生成完成，可以編輯後繼續')
@@ -189,6 +354,166 @@ function App() {
     } finally {
       setGeneratingDescriptions(false)
     }
+  }
+
+  // 初始化空的描述列表
+  const handleInitDescriptions = () => {
+    if (descriptions.length === count) return
+    const items = Array.from({ length: count }, (_, i) => (
+      descriptions[i] || { description: '', text: '' }
+    ))
+    setDescriptions(items)
+  }
+
+  // 從文字清單匯入
+  const [bulkText, setBulkText] = useState('')
+  const handleImportBulkText = () => {
+    const lines = bulkText
+      .split('\n')
+      .map(line => line.replace(/^[-*]\s*\[[ x]?\]\s*/g, '').replace(/^\d+\.\s*/, '').trim()) // 去掉 - [ ] 或編號前綴
+      .filter(line => line.length > 0)
+    if (lines.length === 0) { alert('沒有偵測到文字'); return }
+    const items = lines.map(line => {
+      // 支援「文字：描述」或「文字:描述」格式
+      const colonIdx = line.search(/[：:]/)
+      if (colonIdx !== -1) {
+        return {
+          text: line.slice(0, colonIdx).trim(),
+          description: line.slice(colonIdx + 1).trim()
+        }
+      }
+      return { description: '', text: line }
+    })
+    // 追加模式：跳過已有相同文字的，只加新的
+    const existingTexts = new Set(descriptions.map(d => d.text?.trim()).filter(Boolean))
+    const newItems = items.filter(item => !existingTexts.has(item.text?.trim()))
+    if (newItems.length === 0) { alert('所有文字都已存在，沒有新增'); return }
+    const merged = [...descriptions, ...newItems]
+    setDescriptions(merged)
+    setCount(merged.length)
+    setBulkText('')
+  }
+
+  // 單張生成（文字+描述一起）
+  const [generatingSingle, setGeneratingSingle] = useState(null)
+  const handleGenerateSingle = async (index) => {
+    if (!apiKey.trim()) { alert('請輸入 Gemini API Key'); return }
+    setGeneratingSingle(index)
+    let finalTextStyle = textStyle
+    if (!finalTextStyle.trim()) {
+      try { finalTextStyle = await generateTextStyle(apiKey, theme, characterDescription); setTextStyle(finalTextStyle) }
+      catch { finalTextStyle = '可愛簡潔的風格' }
+    }
+    try {
+      const existingTexts = descriptions.map(d => d.text).filter(Boolean)
+      const item = await generateSingleDescription(apiKey, theme, finalTextStyle, characterDescription, existingTexts, characterStance)
+      const newDescriptions = [...descriptions]
+      newDescriptions[index] = item
+      setDescriptions(newDescriptions)
+    } catch (error) { alert(`生成失敗: ${error.message}`) }
+    finally { setGeneratingSingle(null) }
+  }
+
+  // 單張 AI 生成文字
+  const [generatingText, setGeneratingText] = useState(null)
+  const handleGenerateText = async (index) => {
+    if (!apiKey.trim()) { alert('請輸入 Gemini API Key'); return }
+    setGeneratingText(index)
+    let finalTextStyle = textStyle
+    if (!finalTextStyle.trim()) {
+      try { finalTextStyle = await generateTextStyle(apiKey, theme, characterDescription); setTextStyle(finalTextStyle) }
+      catch { finalTextStyle = '可愛簡潔的風格' }
+    }
+    try {
+      const existingTexts = descriptions.map(d => d.text).filter(Boolean)
+      const text = await generateSingleText(apiKey, theme, finalTextStyle, characterDescription, existingTexts, characterStance)
+      const newDescriptions = [...descriptions]
+      newDescriptions[index] = { ...newDescriptions[index], text }
+      setDescriptions(newDescriptions)
+    } catch (error) { alert(`生成文字失敗: ${error.message}`) }
+    finally { setGeneratingText(null) }
+  }
+
+  // 單張 AI 生成描述（根據已有文字）
+  const [generatingDesc, setGeneratingDesc] = useState(null)
+  const handleGenerateDesc = async (index) => {
+    if (!apiKey.trim()) { alert('請輸入 Gemini API Key'); return }
+    const stickerText = descriptions[index]?.text
+    if (!stickerText?.trim()) { alert('請先填寫文字，AI 會根據文字生成描述'); return }
+    setGeneratingDesc(index)
+    let finalTextStyle = textStyle
+    if (!finalTextStyle.trim()) {
+      try { finalTextStyle = await generateTextStyle(apiKey, theme, characterDescription); setTextStyle(finalTextStyle) }
+      catch { finalTextStyle = '可愛簡潔的風格' }
+    }
+    try {
+      const desc = await generateSingleDescriptionFromText(apiKey, theme, finalTextStyle, characterDescription, stickerText, characterStance)
+      const newDescriptions = [...descriptions]
+      newDescriptions[index] = { ...newDescriptions[index], description: desc }
+      setDescriptions(newDescriptions)
+    } catch (error) { alert(`生成描述失敗: ${error.message}`) }
+    finally { setGeneratingDesc(null) }
+  }
+
+  // 批次 AI 生成空白描述
+  const [batchGeneratingDesc, setBatchGeneratingDesc] = useState(null) // null or '2/5' progress string
+  const handleBatchGenerateDesc = async () => {
+    if (!apiKey.trim()) { alert('請輸入 Gemini API Key'); return }
+    const emptyIndices = descriptions.map((d, i) => (!d.description?.trim() && d.text?.trim()) ? i : -1).filter(i => i !== -1)
+    if (emptyIndices.length === 0) { alert('所有有文字的項目都已有描述'); return }
+    setBatchGeneratingDesc(`0/${emptyIndices.length}`)
+    let finalTextStyle = textStyle
+    if (!finalTextStyle.trim()) {
+      try { finalTextStyle = await generateTextStyle(apiKey, theme, characterDescription); setTextStyle(finalTextStyle) }
+      catch { finalTextStyle = '可愛簡潔的風格' }
+    }
+    const newDescriptions = [...descriptions]
+    for (let i = 0; i < emptyIndices.length; i++) {
+      const idx = emptyIndices[i]
+      setBatchGeneratingDesc(`${i + 1}/${emptyIndices.length}`)
+      setProgress(`正在補齊描述（${i + 1}/${emptyIndices.length}）：第 ${idx + 1} 張「${newDescriptions[idx].text}」...`)
+      try {
+        const desc = await generateSingleDescriptionFromText(apiKey, theme, finalTextStyle, characterDescription, newDescriptions[idx].text, characterStance)
+        newDescriptions[idx] = { ...newDescriptions[idx], description: desc }
+        setDescriptions([...newDescriptions])
+      } catch (error) { console.warn(`描述 ${idx + 1} 生成失敗:`, error.message) }
+    }
+    setProgress('')
+    setBatchGeneratingDesc(null)
+  }
+
+  // 刪除單張
+  const handleDeleteDescription = (index) => {
+    const newDescriptions = descriptions.filter((_, i) => i !== index)
+    setDescriptions(newDescriptions)
+    setCount(newDescriptions.length)
+  }
+
+  // 拖拉排序
+  const [dragIdx, setDragIdx] = useState(null)
+  const handleDragStart2 = (index) => { setDragIdx(index) }
+  const handleDragOver2 = (e, index) => { e.preventDefault() }
+  const handleDrop2 = (index) => {
+    if (dragIdx === null || dragIdx === index) return
+    const items = [...descriptions]
+    const [moved] = items.splice(dragIdx, 1)
+    items.splice(index, 0, moved)
+    setDescriptions(items)
+    setDragIdx(null)
+  }
+
+  // 匯出文字清單
+  const handleExportDescriptions = () => {
+    const text = descriptions.map(d => {
+      if (d.description?.trim()) return `${d.text}：${d.description}`
+      return d.text || ''
+    }).filter(Boolean).join('\n')
+    navigator.clipboard.writeText(text).then(() => {
+      alert(`已複製 ${descriptions.length} 張貼圖文字到剪貼簿`)
+    }).catch(() => {
+      // fallback: 顯示在 textarea 讓使用者手動複製
+      prompt('複製以下內容：', text)
+    })
   }
 
   // 更新描述
@@ -282,11 +607,13 @@ function App() {
         
         while (!gridImage && retryCount < maxRetries) {
           try {
+            const previousGrid = gridIndex > 0 ? allGridImages[gridIndex - 1] : null
             gridImage = await generateGrid8Image(
               apiKey,
               characterImage,
               gridStickers,
-              textStyle || ''
+              textStyle || '',
+              previousGrid
             )
           } catch (error) {
             retryCount++
@@ -430,22 +757,106 @@ function App() {
         dataUrl: dataUrl
       }))
 
-      await downloadAsZip(imagesForDownload, mainImage, tabImage, theme)
+      await downloadAsZip(imagesForDownload, mainImage, tabImage, theme, selectedCharacter?.name)
     } catch (error) {
       console.error('下載失敗:', error)
       alert(`下載失敗: ${error.message}`)
     }
   }
 
+  // 單組八宮格重產
+  const [regeneratingGrid, setRegeneratingGrid] = useState(null)
+  const handleRegenerateGrid = async (gridIndex) => {
+    setRegeneratingGrid(gridIndex)
+    setProgress(`正在重新生成第 ${gridIndex + 1} 組八宮格...`)
+    try {
+      const startIdx = gridIndex * 8
+      const endIdx = Math.min(startIdx + 8, descriptions.length)
+      let gridStickers = descriptions.slice(startIdx, endIdx)
+      while (gridStickers.length < 8) {
+        gridStickers.push({ description: '空白', text: '　' })
+      }
+      // 用相鄰的八宮格作為風格參考
+      const previousGrid = gridIndex > 0 ? gridImages[gridIndex - 1]
+        : (gridImages.length > 1 ? gridImages[gridIndex + 1] : null)
+      const newGridImage = await generateGrid8Image(
+        apiKey, characterImage, gridStickers, textStyle || '', previousGrid
+      )
+      const newGridImages = [...gridImages]
+      newGridImages[gridIndex] = newGridImage
+      setGridImages(newGridImages)
+
+      // 重新去背 + 裁切這組
+      const processed = await removeBackgroundSimple(newGridImage, backgroundThreshold, null)
+      const newProcessed = [...processedGridImages]
+      newProcessed[gridIndex] = processed
+      setProcessedGridImages(newProcessed)
+
+      const newCuts = await splitGrid8(processed)
+      const updatedCutImages = [...cutImages]
+      const actualCount = endIdx - startIdx
+      for (let i = 0; i < actualCount; i++) {
+        updatedCutImages[startIdx + i] = newCuts[i]
+      }
+      setCutImages(updatedCutImages)
+
+      setProgress(`第 ${gridIndex + 1} 組八宮格已重新生成`)
+    } catch (error) {
+      console.error('重新生成八宮格失敗:', error)
+      alert(`重新生成失敗: ${error.message}`)
+      setProgress('')
+    } finally {
+      setRegeneratingGrid(null)
+    }
+  }
+
+  // 單張貼圖重產
+  const [regeneratingIndex, setRegeneratingIndex] = useState(null)
+  const handleRegenerateSingleSticker = async (stickerIndex) => {
+    const desc = descriptions[stickerIndex]
+    if (!desc) return
+
+    setRegeneratingIndex(stickerIndex)
+    setProgress(`正在重新生成第 ${stickerIndex + 1} 張貼圖...`)
+
+    try {
+      const newStickerDataUrl = await generateStickerWithText(
+        apiKey,
+        characterImage,
+        desc.description,
+        desc.text,
+        textStyle || '',
+        370,
+        320
+      )
+
+      const processedSticker = await removeBackgroundSimple(newStickerDataUrl, backgroundThreshold, null)
+
+      setCutImages(prev => {
+        const updated = [...prev]
+        updated[stickerIndex] = processedSticker
+        return updated
+      })
+
+      setProgress('')
+    } catch (error) {
+      console.error('重新生成貼圖失敗:', error)
+      alert(`重新生成失敗: ${error.message}`)
+      setProgress('')
+    } finally {
+      setRegeneratingIndex(null)
+    }
+  }
+
   return (
     <div className="app">
       <div className="container">
-        <h1 className="title">LINE 貼圖製作</h1>
+        <h1 className="title" style={{ cursor: 'pointer' }} onClick={() => setPage('home')}>StampMill</h1>
 
-        {/* 步驟 1: API Key */}
+        {/* API Key — 所有頁面共用 */}
         <div className="step-section">
-          <h2>步驟 1: 填入 Gemini API Key</h2>
           <div className="form-group">
+            <label>Gemini API Key</label>
             <input
               type="password"
               value={apiKey}
@@ -456,163 +867,231 @@ function App() {
           </div>
         </div>
 
-        {/* 步驟 2: 選擇張數 */}
-        <div className="step-section">
-          <h2>步驟 2: 選擇創作張數</h2>
-          <div className="form-group">
-            <select
-              value={count}
-              onChange={(e) => setCount(Number(e.target.value))}
-              className="form-input"
-            >
-              <option value={8}>8 張</option>
-              <option value={16}>16 張</option>
-              <option value={24}>24 張</option>
-              <option value={32}>32 張</option>
-              <option value={40}>40 張</option>
-            </select>
-          </div>
-        </div>
-
-        {/* 步驟 3: 角色描述/圖片和主題說明 */}
-        <div className="step-section">
-          <h2>步驟 3: 填入角色描述或上傳角色圖片</h2>
-          <div className="form-group">
-            <label>角色描述（如果不上傳圖片，則根據描述生成角色）</label>
-            <textarea
-              value={characterDescription}
-              onChange={(e) => setCharacterDescription(e.target.value)}
-              placeholder="請描述角色的外觀、特徵、風格等..."
-              rows={3}
-              className="form-input"
-              disabled={!!uploadedCharacterImage}
-            />
-          </div>
-          <div className="form-group">
-            <label>或上傳角色圖片（如果上傳，將使用此圖片作為角色）</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleCharacterUpload}
-              className="form-input"
-            />
-            {uploadedCharacterImage && (
-              <div>
-                <img src={uploadedCharacterImage} alt="上傳的角色" className="preview-image-small" />
-                <p className="success-message">✓ 已上傳角色圖片，將在步驟 4 自動顯示</p>
+        {/* ===== 首頁 ===== */}
+        {page === 'home' && (
+          <>
+            <div className="step-section">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <h2 style={{ margin: 0 }}>我的角色</h2>
+                <button className="btn btn-primary btn-inline" onClick={() => setPage('character-create')}>
+                  + 新增角色
+                </button>
               </div>
-            )}
-          </div>
-          <div className="form-group">
-            <label>主題說明</label>
-            <textarea
-              value={theme}
-              onChange={(e) => setTheme(e.target.value)}
-              placeholder="請描述貼圖的主題、情境、用途等..."
-              rows={3}
-              className="form-input"
-            />
-          </div>
-        </div>
-
-        {/* 步驟 4: 生成角色/確認角色 */}
-        <div className="step-section">
-          <h2>步驟 4: 角色確認</h2>
-          
-          {/* 如果已上傳角色圖片，直接顯示 */}
-          {uploadedCharacterImage && characterImage && (
-            <div className="character-preview">
-              <h3>上傳的角色圖片</h3>
-              <img src={characterImage} alt="上傳的角色" className="preview-image character-image" />
-              <p className="success-message">✓ 已使用上傳的角色圖片</p>
-              <button className="btn btn-success" onClick={handleConfirmCharacter}>
-                確認，繼續下一步
-              </button>
-            </div>
-          )}
-
-          {/* 如果沒有上傳，則生成角色 */}
-          {!uploadedCharacterImage && (
-            <>
-              <button
-                className="btn btn-primary"
-                onClick={handleGenerateCharacter}
-                disabled={generatingCharacter || !apiKey || (!characterDescription.trim() && !theme.trim())}
-              >
-                {generatingCharacter ? '生成中...' : '生成角色'}
-              </button>
-
-              {characterImage && (
-                <div className="character-preview">
-                  <h3>角色預覽（請確認是否符合要求）</h3>
-                  <img src={characterImage} alt="生成的角色" className="preview-image character-image" />
-                  {!characterConfirmed ? (
-                    <div className="character-actions">
-                      <button className="btn btn-success" onClick={handleConfirmCharacter}>
-                        確認，繼續下一步
-                      </button>
-                      <button className="btn btn-secondary" onClick={handleRegenerateCharacter}>
-                        重新生成
-                      </button>
+              {characters.length === 0 ? (
+                <p style={{ color: '#999', textAlign: 'center', padding: '30px' }}>還沒有角色，點擊「新增角色」開始</p>
+              ) : (
+                <div className="character-grid">
+                  {characters.map(char => (
+                    <div key={char.id} className="character-card">
+                      <img src={char.imageDataUrl} alt={char.name} className="character-card-img" />
+                      <div className="character-card-info">
+                        <h3>{char.name}</h3>
+                        {char.theme && <p className="character-card-theme">{char.theme}</p>}
+                      </div>
+                      <div className="character-card-actions">
+                        <button className="btn btn-primary btn-inline" onClick={() => handleSelectCharacter(char)}>
+                          產貼圖
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-inline"
+                          onClick={() => handleDeleteCharacter(char.id)}
+                          style={{ color: '#e74c3c' }}
+                        >
+                          刪除
+                        </button>
+                      </div>
                     </div>
-                  ) : (
-                    <p className="success-message">✓ 角色已確認</p>
-                  )}
+                  ))}
                 </div>
               )}
-            </>
-          )}
-        </div>
-
-        {/* 步驟 5: 文字風格描述 */}
-        {characterConfirmed && (
-          <div className="step-section">
-            <h2>步驟 5: 字體樣式風格描述</h2>
-            <div className="form-group">
-              <label>字體樣式風格描述（可選，不填寫則在生成文字描述時自動由 AI 生成）</label>
-              <textarea
-                value={textStyle}
-                onChange={(e) => setTextStyle(e.target.value)}
-                placeholder="例如：可愛簡潔的風格，文字清晰易讀，使用粗體字，文字框使用白色或黃色背景..."
-                rows={3}
-                className="form-input"
-                disabled={generatingTextStyle}
-              />
-              <p className="form-hint">如果不填寫，系統會在生成文字描述時自動生成統一的字體樣式風格</p>
             </div>
-            <button
-              className="btn btn-primary"
-              onClick={handleGenerateTextStyle}
-              disabled={generatingTextStyle || !apiKey || !theme.trim()}
-            >
-              {generatingTextStyle ? '生成中...' : textStyle ? '重新生成字體樣式風格' : '預覽 AI 生成的字體樣式風格'}
-            </button>
-            
-            {textStyle && (
-              <div className="text-style-preview">
-                <h3>字體樣式風格：</h3>
-                <p className="text-style-content">{textStyle}</p>
-                <button className="btn btn-success" onClick={() => setTextStyleConfirmed(true)}>
-                  確認，繼續下一步
-                </button>
-              </div>
-            )}
-            
-            {!textStyle && (
-              <div className="info-box">
-                <p>💡 提示：如果現在不填寫文字風格，系統會在生成文字描述時自動生成統一的字體樣式風格，確保所有貼圖的文字樣式一致。</p>
-                <button className="btn btn-success" onClick={() => setTextStyleConfirmed(true)}>
-                  跳過，直接進入下一步（將自動生成字體樣式風格）
-                </button>
-              </div>
-            )}
-          </div>
+          </>
         )}
 
-        {/* 步驟 6: 生成文字描述 */}
-        {textStyleConfirmed && (
-          <div className="step-section">
-            <h2>步驟 6: 生成文字描述（可編輯）</h2>
+        {/* ===== 角色設計頁 ===== */}
+        {page === 'character-create' && (
+          <>
+            <div className="step-section">
+              <h2>角色設計</h2>
+              <button className="btn btn-secondary btn-inline" onClick={() => setPage('home')} style={{ marginBottom: '15px' }}>
+                ← 返回首頁
+              </button>
+              <div className="form-group">
+                <label>角色名稱</label>
+                <input
+                  type="text"
+                  value={characterName}
+                  onChange={(e) => setCharacterName(e.target.value)}
+                  placeholder="為角色取個名字..."
+                  className="form-input"
+                />
+              </div>
+              <div className="form-group">
+                <label>角色描述（可搭配上傳圖片一起使用）</label>
+                <textarea
+                  value={characterDescription}
+                  onChange={(e) => setCharacterDescription(e.target.value)}
+                  placeholder="請描述角色的外觀、特徵、風格等..."
+                  rows={3}
+                  className="form-input"
+                />
+              </div>
+              <div className="form-group">
+                <label>上傳角色參考圖片（可搭配文字描述一起使用）</label>
+                <div
+                  className={`drop-zone${dragging ? ' drop-zone--active' : ''}`}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                >
+                  {uploadedCharacterImage ? (
+                    <div>
+                      <img src={uploadedCharacterImage} alt="上傳的角色" className="preview-image-small" />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
+                        <p className="success-message" style={{ margin: 0 }}>✓ 已上傳角色圖片</p>
+                        <button
+                          className="btn btn-secondary btn-inline"
+                          onClick={() => { setUploadedCharacterImage(null); setCharacterImage(null); setCharacterConfirmed(false) }}
+                        >
+                          清除圖片
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="drop-zone-hint">拖拉圖片到這裡、Ctrl+V 貼上、或點擊下方選擇檔案</p>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleCharacterUpload}
+                    className="form-input"
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>主題說明</label>
+                <textarea
+                  value={theme}
+                  onChange={(e) => setTheme(e.target.value)}
+                  placeholder="請描述貼圖的主題、情境、用途等..."
+                  rows={3}
+                  className="form-input"
+                />
+              </div>
+            </div>
+
+            {/* 生成 / 確認角色 */}
+            <div className="step-section">
+              <h2>角色預覽</h2>
+
+              {uploadedCharacterImage && characterImage && (
+                <div className="character-preview">
+                  <img src={characterImage} alt="上傳的角色" className="preview-image character-image" />
+                  <button className="btn btn-success" onClick={handleSaveCharacter} style={{ marginTop: '10px' }}>
+                    儲存角色
+                  </button>
+                </div>
+              )}
+
+              {!uploadedCharacterImage && (
+                <>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleGenerateCharacter}
+                    disabled={generatingCharacter || !apiKey || (!characterDescription.trim() && !theme.trim())}
+                  >
+                    {generatingCharacter ? '生成中...' : '生成角色'}
+                  </button>
+
+                  {characterImage && (
+                    <div className="character-preview">
+                      <img src={characterImage} alt="生成的角色" className="preview-image character-image" />
+                      <div className="character-actions">
+                        <button className="btn btn-success" onClick={handleSaveCharacter}>
+                          儲存角色
+                        </button>
+                        <button className="btn btn-secondary" onClick={handleRegenerateCharacter}>
+                          重新生成
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ===== 貼圖生產頁 ===== */}
+        {page === 'sticker-produce' && (
+          <>
+            <div className="step-section">
+              <button className="btn btn-secondary btn-inline" onClick={() => setPage('home')} style={{ marginBottom: '15px' }}>
+                ← 返回首頁
+              </button>
+              {selectedCharacter && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}>
+                  <img src={selectedCharacter.imageDataUrl} alt={selectedCharacter.name} style={{ width: '60px', height: '60px', borderRadius: '8px', objectFit: 'cover' }} />
+                  <div>
+                    <h2 style={{ margin: 0 }}>{selectedCharacter.name}</h2>
+                    {selectedCharacter.theme && <p style={{ margin: '4px 0 0', color: '#666', fontSize: '14px' }}>{selectedCharacter.theme}</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 張數選擇 */}
+            <div className="step-section">
+              <h2>張數選擇</h2>
+              <div className="form-group">
+                <select
+                  value={count}
+                  onChange={(e) => setCount(Number(e.target.value))}
+                  className="form-input"
+                >
+                  <option value={8}>8 張</option>
+                  <option value={16}>16 張</option>
+                  <option value={24}>24 張</option>
+                  <option value={32}>32 張</option>
+                  <option value={40}>40 張</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 文字風格描述 */}
+            <div className="step-section">
+              <h2>字體樣式風格描述</h2>
+              <div className="form-group">
+                <label>字體樣式風格描述（可選，不填寫則在生成文字描述時自動由 AI 生成）</label>
+                <textarea
+                  value={textStyle}
+                  onChange={(e) => setTextStyle(e.target.value)}
+                  placeholder="例如：可愛簡潔的風格，文字清晰易讀，使用粗體字，文字框使用白色或黃色背景..."
+                  rows={3}
+                  className="form-input"
+                  disabled={generatingTextStyle}
+                />
+                <p className="form-hint">如果不填寫，系統會在生成文字描述時自動生成統一的字體樣式風格</p>
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={handleGenerateTextStyle}
+                disabled={generatingTextStyle || !apiKey || !theme.trim()}
+              >
+                {generatingTextStyle ? '生成中...' : textStyle ? '重新生成字體樣式風格' : '預覽 AI 生成的字體樣式風格'}
+              </button>
+
+              {textStyle && (
+                <div className="text-style-preview">
+                  <h3>字體樣式風格：</h3>
+                  <p className="text-style-content">{textStyle}</p>
+                </div>
+              )}
+            </div>
+
+            {/* 文字描述 */}
+            <div className="step-section">
+              <h2>文字描述（可編輯）</h2>
             
             {/* 角色立場描述 */}
             <div className="form-group" style={{ marginBottom: '20px' }}>
@@ -668,37 +1147,124 @@ function App() {
               </p>
             </div>
             
-            <button
-              className="btn btn-primary"
-              onClick={handleGenerateDescriptions}
-              disabled={generatingDescriptions || !apiKey}
-            >
-              {generatingDescriptions ? '生成中...' : textStyle ? '生成文字描述' : '生成文字描述（將自動生成字體樣式風格）'}
-            </button>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-primary"
+                onClick={() => { handleInitDescriptions(); handleGenerateDescriptions() }}
+                disabled={generatingDescriptions || !apiKey}
+              >
+                {generatingDescriptions ? '生成中...' : `一鍵生成全部 ${count} 張描述`}
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={handleInitDescriptions}
+              >
+                建立 {count} 張空白欄位（手動填寫）
+              </button>
+            </div>
+
+            <div className="form-group" style={{ marginTop: '15px' }}>
+              <label style={{ fontWeight: 'bold' }}>或貼上文字清單（每行一個，自動偵測張數）</label>
+              <textarea
+                value={bulkText}
+                onChange={(e) => setBulkText(e.target.value)}
+                placeholder={"每行一個，支援格式：\n歸心似箭：鮭魚在快速游泳\n同鮭魚盡\n你鮭我管\n\n冒號後為描述（選填），已存在的文字會自動跳過"}
+                rows={4}
+                className="form-input"
+              />
+              {bulkText.trim() && (
+                <button
+                  className="btn btn-primary"
+                  onClick={handleImportBulkText}
+                  style={{ marginTop: '8px' }}
+                >
+                  匯入（{bulkText.split('\n').map(l => l.replace(/^[-*]\s*\[[ x]?\]\s*/, '').trim()).filter(l => l).length} 張）
+                </button>
+              )}
+            </div>
 
             {descriptions.length > 0 && (
               <div className="descriptions-editor">
-                <h3>編輯描述和文字（共 {descriptions.length} 張）</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                  <h3 style={{ margin: 0 }}>編輯描述和文字（共 {descriptions.length} 張）</h3>
+                  <button
+                    className="btn btn-secondary btn-inline"
+                    onClick={handleBatchGenerateDesc}
+                    disabled={batchGeneratingDesc !== null}
+                  >
+                    {batchGeneratingDesc !== null ? `補齊中 ${batchGeneratingDesc}...` : '補齊空白描述（跳過已填）'}
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-inline"
+                    onClick={handleExportDescriptions}
+                  >
+                    匯出文字清單
+                  </button>
+                </div>
                 {descriptions.map((item, index) => (
-                  <div key={index} className="description-item">
-                    <div className="description-field">
-                      <label>描述 {index + 1}:</label>
-                      <input
-                        type="text"
-                        value={item.description}
-                        onChange={(e) => handleUpdateDescription(index, 'description', e.target.value)}
-                        className="form-input"
-                      />
+                  <div
+                    key={index}
+                    className="description-item"
+                    style={{ position: 'relative', opacity: dragIdx === index ? 0.5 : 1 }}
+                    draggable
+                    onDragStart={() => handleDragStart2(index)}
+                    onDragOver={(e) => handleDragOver2(e, index)}
+                    onDrop={() => handleDrop2(index)}
+                    onDragEnd={() => setDragIdx(null)}
+                  >
+                    <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <span style={{ cursor: 'grab', fontSize: '16px', color: '#bbb', userSelect: 'none' }} title="拖拉排序">☰</span>
+                      <button
+                        onClick={() => handleDeleteDescription(index)}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          fontSize: '18px', color: '#999', padding: '4px 8px'
+                        }}
+                        title="刪除這張"
+                      >
+                        &times;
+                      </button>
                     </div>
                     <div className="description-field">
                       <label>文字 {index + 1}:</label>
-                      <input
-                        type="text"
-                        value={item.text}
-                        onChange={(e) => handleUpdateDescription(index, 'text', e.target.value)}
-                        className="form-input"
-                        maxLength={10}
-                      />
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input
+                          type="text"
+                          value={item.text}
+                          onChange={(e) => handleUpdateDescription(index, 'text', e.target.value)}
+                          placeholder="貼圖文字..."
+                          className="form-input"
+                          maxLength={10}
+                          style={{ flex: 1, minWidth: 0 }}
+                        />
+                        <button
+                          className="btn btn-secondary btn-inline"
+                          onClick={() => handleGenerateText(index)}
+                          disabled={generatingText !== null}
+                        >
+                          {generatingText === index ? '生成中...' : 'AI 生成文字'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="description-field">
+                      <label>描述 {index + 1}:</label>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <textarea
+                          value={item.description}
+                          onChange={(e) => handleUpdateDescription(index, 'description', e.target.value)}
+                          placeholder="圖片場景描述..."
+                          className="form-input"
+                          rows={2}
+                          style={{ flex: 1, minWidth: 0, resize: 'vertical' }}
+                        />
+                        <button
+                          className="btn btn-secondary btn-inline"
+                          onClick={() => handleGenerateDesc(index)}
+                          disabled={generatingDesc !== null}
+                        >
+                          {generatingDesc === index ? '生成中...' : 'AI 生成描述'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -712,14 +1278,13 @@ function App() {
               </div>
             )}
           </div>
-        )}
 
         {/* 進度顯示 */}
         {progress && (
           <div className="progress">{progress}</div>
         )}
 
-        {/* 步驟 7: 去背調整 */}
+        {/* 去背調整 */}
         {processedGridImages.length > 0 && currentStep === 7 && (
           <div className="step-section">
             <h2>步驟 7: 調整去背程度</h2>
@@ -908,7 +1473,14 @@ function App() {
                 <div className="grid-preview">
                   {gridImages.map((img, idx) => (
                     <div key={idx} className="grid-item">
-                      <img src={img} alt={`8宮格 ${idx + 1}`} className="preview-image grid-image" />
+                      <img src={img} alt={`8宮�� ${idx + 1}`} className="preview-image grid-image" />
+                      <button
+                        className="btn btn-regen"
+                        onClick={() => handleRegenerateGrid(idx)}
+                        disabled={regeneratingGrid !== null || loading}
+                      >
+                        {regeneratingGrid === idx ? '生成中...' : '重產這組'}
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -927,6 +1499,13 @@ function App() {
                       <br />
                       <strong>{descriptions[idx]?.text || ''}</strong>
                     </p>
+                    <button
+                      className="btn btn-regen"
+                      onClick={() => handleRegenerateSingleSticker(idx)}
+                      disabled={regeneratingIndex !== null || loading}
+                    >
+                      {regeneratingIndex === idx ? '生成中...' : '重產'}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -948,6 +1527,8 @@ function App() {
               </div>
             )}
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

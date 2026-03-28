@@ -63,6 +63,70 @@
 .form-group input,
 .form-group textarea,
 .form-group select,
+.character-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.character-card {
+  border: 1.5px solid #dee2e6;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fafbfc;
+  transition: box-shadow 0.2s;
+}
+
+.character-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.character-card-img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.character-card-info {
+  padding: 10px 12px 4px;
+}
+
+.character-card-info h3 {
+  margin: 0;
+  font-size: 1em;
+}
+
+.character-card-theme {
+  margin: 4px 0 0;
+  font-size: 0.8em;
+  color: #888;
+}
+
+.character-card-actions {
+  padding: 8px 12px 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.drop-zone {
+  border: 2px dashed #dee2e6;
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+  transition: all 0.2s ease;
+  background: #fafbfc;
+}
+
+.drop-zone--active {
+  border-color: #667eea;
+  background: #f0f3ff;
+}
+
+.drop-zone-hint {
+  color: #8899a6;
+  margin: 0 0 10px;
+}
+
 .form-input {
   width: 100%;
   padding: 14px 18px;
@@ -100,6 +164,13 @@
   transition: all 0.2s ease;
   width: 100%;
   letter-spacing: 0.3px;
+}
+
+.btn-inline {
+  width: auto;
+  padding: 8px 14px;
+  font-size: 0.85em;
+  flex-shrink: 0;
 }
 
 .btn-primary {
@@ -235,6 +306,26 @@
   color: #6c757d;
   word-break: break-word;
   line-height: 1.5;
+}
+
+.btn-regen {
+  margin-top: 6px;
+  padding: 4px 12px;
+  font-size: 0.8em;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-regen:hover:not(:disabled) {
+  background: #e0e0e0;
+}
+
+.btn-regen:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* 角色預覽 */
