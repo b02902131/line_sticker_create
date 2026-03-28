@@ -140,6 +140,21 @@ function App() {
     if (selectedCharacter?.id) saveCharDescs(selectedCharacter.id, descriptions)
   }, [descriptions, selectedCharacter])
 
+  // 步驟 6-8: 8宮格生成、去背、裁切
+  const [gridImages, setGridImages] = useState([]) // 8宮格圖片陣列
+  const [processedGridImages, setProcessedGridImages] = useState([]) // 去背後的8宮格
+  const [cutImages, setCutImages] = useState([]) // 裁切後的單張圖片
+  const [mainImage, setMainImage] = useState(null) // 主要圖片 240x240
+  const [tabImage, setTabImage] = useState(null) // 標籤圖片 96x74
+  const [backgroundThreshold, setBackgroundThreshold] = useState(240) // 去背閾值
+  const [processingBackground, setProcessingBackground] = useState(false) // 正在處理去背
+  const [previewBackgroundDark, setPreviewBackgroundDark] = useState(false) // 預覽背景是否為深色
+  const [currentStep, setCurrentStep] = useState(1)
+  const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState('')
+
+  const [dragging, setDragging] = useState(false)
+
   // 自動保存圖片到 IndexedDB（防抖 1 秒）
   const saveTimerRef = useRef(null)
   useEffect(() => {
@@ -158,21 +173,6 @@ function App() {
     }, 1000)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
   }, [gridImages, processedGridImages, cutImages, mainImage, tabImage, selectedCharacter, backgroundThreshold])
-
-  // 步驟 6-8: 8宮格生成、去背、裁切
-  const [gridImages, setGridImages] = useState([]) // 8宮格圖片陣列
-  const [processedGridImages, setProcessedGridImages] = useState([]) // 去背後的8宮格
-  const [cutImages, setCutImages] = useState([]) // 裁切後的單張圖片
-  const [mainImage, setMainImage] = useState(null) // 主要圖片 240x240
-  const [tabImage, setTabImage] = useState(null) // 標籤圖片 96x74
-  const [backgroundThreshold, setBackgroundThreshold] = useState(240) // 去背閾值
-  const [processingBackground, setProcessingBackground] = useState(false) // 正在處理去背
-  const [previewBackgroundDark, setPreviewBackgroundDark] = useState(false) // 預覽背景是否為深色
-  const [currentStep, setCurrentStep] = useState(1)
-  const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState('')
-
-  const [dragging, setDragging] = useState(false)
 
   // 共用：處理圖片檔案
   const handleImageFile = useCallback(async (file) => {
