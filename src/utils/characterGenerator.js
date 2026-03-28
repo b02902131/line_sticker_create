@@ -26,7 +26,7 @@ const STRICT_CONSISTENCY_RULES = `
  * @param {string} uploadedImage - 上傳的參考圖片（可選）
  * @returns {Promise<string>} 角色圖片的 Data URL
  */
-export async function generateCharacter(apiKey, theme, uploadedImage = null) {
+export async function generateCharacter(apiKey, theme, uploadedImage = null, characterDescription = '') {
   const genAI = new GoogleGenerativeAI(apiKey)
   const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-image-preview' })
 
@@ -48,7 +48,10 @@ Design Requirements:
 ${IMAGE_VISIBILITY_RULES}`
 
   // 如果有上傳的參考圖片，在 prompt 中提及
-  if (uploadedImage) {
+  if (uploadedImage && characterDescription.trim()) {
+    prompt += `\n- Use the uploaded reference image as a base for the character design
+- Additionally, incorporate the following character description: ${characterDescription.trim()}`
+  } else if (uploadedImage) {
     prompt += `\n- Use the uploaded reference image as a base for the character design`
   }
 
@@ -683,7 +686,8 @@ export async function generateGrid8Image(
   apiKey,
   characterImageDataUrl,
   stickers,
-  textStyleDescription = ''
+  textStyleDescription = '',
+  previousGridImageDataUrl = null
 ) {
   const safeTextStyle = textStyleDescription && textStyleDescription.trim() 
     ? textStyleDescription.trim() 
@@ -705,6 +709,15 @@ Imagine 8 stickers placed on a white sheet of paper. NO lines between them.
 
 Character Reference: **STRICTLY FOLLOW the provided character image.** The stickers MUST look exactly like the same character in different poses. Maintain the same facial features, clothing, colors, and proportions.
 ${STRICT_CONSISTENCY_RULES}
+${previousGridImageDataUrl ? `
+🎨 STYLE CONSISTENCY WITH PREVIOUS GRID 🎨
+A previous grid image is provided as a second reference image. You MUST match its style exactly:
+- The exact same art style, line thickness, and coloring technique
+- The same text box style, font style, and text placement approach
+- The same level of detail, shading, and proportions
+- The same background treatment within each sticker cell
+This new grid must look like it belongs to the SAME sticker pack as the previous grid.
+` : ''}
 Background Requirement: **High contrast solid white background** in each area to facilitate automatic background removal.
 ${IMAGE_VISIBILITY_RULES}
 Target Aspect Ratio: 9:16 (Vertical Portrait)
@@ -821,19 +834,46 @@ Each sticker occupies its own virtual 370x320 space, but there are NO VISIBLE LI
       console.warn(`警告：圖片數據較大 (${base64SizeMB.toFixed(2)}MB)，可能導致 API 請求失敗`)
     }
 
+    // 壓縮前一張八宮格圖片作為風格參考
+    let previousGridBase64 = null
+    if (previousGridImageDataUrl) {
+      try {
+        const prevImg = new Image()
+        prevImg.crossOrigin = 'anonymous'
+        prevImg.src = previousGridImageDataUrl
+        await new Promise((resolve) => {
+          prevImg.onload = () => {
+            const maxSize = 512
+            const canvas = document.createElement('canvas')
+            const scale = Math.min(maxSize / prevImg.width, maxSize / prevImg.height)
+            canvas.width = prevImg.width * scale
+            canvas.height = prevImg.height * scale
+            const ctx = canvas.getContext('2d')
+            ctx.drawImage(prevImg, 0, 0, canvas.width, canvas.height)
+            const compressed = canvas.toDataURL('image/jpeg', 0.85)
+            previousGridBase64 = compressed.split(',')[1]
+            console.log(`前一張八宮格已壓縮: ${prevImg.width}x${prevImg.height} -> ${canvas.width}x${canvas.height}`)
+            resolve()
+          }
+          prevImg.onerror = () => { console.warn('前一張八宮格載入失敗，跳過風格參考'); resolve() }
+          setTimeout(() => { if (!prevImg.complete) resolve() }, 5000)
+        })
+      } catch (err) {
+        console.warn('前一張八宮格壓縮失敗:', err)
+      }
+    }
+
+    const parts = [
+      { text: prompt },
+      { inlineData: { mimeType: 'image/png', data: base64Data } }
+    ]
+    if (previousGridBase64) {
+      parts.push({ inlineData: { mimeType: 'image/jpeg', data: previousGridBase64 } })
+    }
+
     const requestBody = {
       contents: [{
-        parts: [
-          {
-            text: prompt
-          },
-          {
-            inlineData: {
-              mimeType: 'image/png',
-              data: base64Data
-            }
-          }
-        ]
+        parts
       }],
       generationConfig: {
         temperature: 0.8,
