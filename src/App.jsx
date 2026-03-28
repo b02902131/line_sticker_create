@@ -5,6 +5,7 @@ import { generateCharacter, generateStickerWithText, generateMainImage, generate
 import { createGrid8, splitGrid8, removeBackgroundSimple, fileToDataURL } from './utils/imageUtils'
 import { downloadAsZip } from './utils/zipDownloader'
 import { saveCharacterImages, loadCharacterImages, deleteCharacterImages } from './utils/imageStore'
+import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
 
 const LS_KEY = 'stampmill_draft'
 const LS_CHARACTERS = 'stampmill_characters'
@@ -48,10 +49,10 @@ function App() {
   const [excludedTexts, setExcludedTexts] = useState(draft.excludedTexts || '')
   const [characterStance, setCharacterStance] = useState(draft.characterStance || '')
 
-  // 儲存角色到 localStorage
+  // 儲存角色到 localStorage + 本地檔案
   const saveCharacters = (chars) => {
     setCharacters(chars)
-    localStorage.setItem(LS_CHARACTERS, JSON.stringify(chars))
+    syncSaveCharacters(chars)
   }
 
   // 儲存角色
@@ -81,7 +82,7 @@ function App() {
   const handleDeleteCharacter = (id) => {
     if (!confirm('確定要刪除這個角色嗎？')) return
     saveCharacters(characters.filter(c => c.id !== id))
-    localStorage.removeItem(`stampmill_descs_${id}`)
+    syncDeleteDescs(id)
     deleteCharacterImages(id).catch(() => {})
   }
 
@@ -91,7 +92,7 @@ function App() {
     catch { return [] }
   }
   const saveCharDescs = (charId, descs) => {
-    localStorage.setItem(`stampmill_descs_${charId}`, JSON.stringify(descs))
+    syncSaveDescs(charId, descs)
   }
 
   // 選角色進入生產
@@ -128,6 +129,13 @@ function App() {
       console.warn('恢復圖片數據失敗:', err)
     }
   }
+
+  // 啟動時從本地檔案同步角色資料
+  useEffect(() => {
+    syncLoadCharacters().then(fileChars => {
+      if (fileChars.length > 0) setCharacters(fileChars)
+    })
+  }, [])
 
   // 自動暫存到 localStorage
   useEffect(() => {
