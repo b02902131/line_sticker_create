@@ -3,6 +3,10 @@ backlogs
 Next version (auto deploy)
 - [] 研究 line creator 有沒有 api 可以自動上架
 
+### Refinement
+- [] 研究 tab 貼圖怎麼製作的，現在這樣太小而且也沒去背
+- [] 研究去背品質怎麼優化，必要的話不要用 canvas 如果 gemini 效果更好的話。或是出字的顏色要考慮，然後去背調最低閾值。然後圖案也要要求不要有太多白色漸層避免被去背
+
 ### Feature
 - [x] 八宮格的下一張可以參考前一張八宮格幫助風格統一（類似RNN的概念？）
 - [x] 八宮格可以單張重新產嗎
