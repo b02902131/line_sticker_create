@@ -663,6 +663,67 @@ export function fileToDataURL(file) {
  * @param {number} targetHeight - 目標高度
  * @returns {Promise<string>} 調整後的圖片 Data URL
  */
+/**
+ * 從角色圖裁切去背生成 tab 圖片（96x74）
+ * 居中裁切為 4:3 橫向比例，去背後縮放至 96x74
+ */
+export async function createTabFromCharacter(characterDataUrl, threshold = 240) {
+  // 先去背
+  const removed = await removeBackgroundSimple(characterDataUrl, threshold)
+
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const { width, height } = img
+      // 找出非透明的 bounding box
+      const tmpCanvas = document.createElement('canvas')
+      tmpCanvas.width = width
+      tmpCanvas.height = height
+      const tmpCtx = tmpCanvas.getContext('2d')
+      tmpCtx.drawImage(img, 0, 0)
+      const imageData = tmpCtx.getImageData(0, 0, width, height)
+      const { data } = imageData
+
+      let minX = width, minY = height, maxX = 0, maxY = 0
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (data[(y * width + x) * 4 + 3] > 10) {
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+          }
+        }
+      }
+
+      if (maxX <= minX || maxY <= minY) {
+        minX = 0; minY = 0; maxX = width - 1; maxY = height - 1
+      }
+
+      // 裁切出內容區域
+      const contentW = maxX - minX + 1
+      const contentH = maxY - minY + 1
+
+      // 等比縮放到 96x74 框內（contain），不變形
+      const scale = Math.min(96 / contentW, 74 / contentH)
+      const drawW = Math.round(contentW * scale)
+      const drawH = Math.round(contentH * scale)
+      const drawX = Math.round((96 - drawW) / 2)
+      const drawY = Math.round((74 - drawH) / 2)
+
+      const canvas = document.createElement('canvas')
+      canvas.width = 96
+      canvas.height = 74
+      const ctx = canvas.getContext('2d')
+      ctx.clearRect(0, 0, 96, 74)
+      ctx.drawImage(img, minX, minY, contentW, contentH, drawX, drawY, drawW, drawH)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = reject
+    img.src = removed
+  })
+}
+
 export async function resizeImage(dataUrl, targetWidth, targetHeight) {
   return new Promise((resolve, reject) => {
     const img = new Image()
