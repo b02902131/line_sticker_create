@@ -23,16 +23,20 @@ const STRICT_CONSISTENCY_RULES = `
  * 生成角色圖片（白色背景）
  * @param {string} apiKey - Gemini API Key
  * @param {string} theme - 主題描述
- * @param {string} uploadedImage - 上傳的參考圖片（可選）
+ * @param {string|string[]} uploadedImages - 上傳的參考圖片（可選，支援單張或多張）
  * @returns {Promise<string>} 角色圖片的 Data URL
  */
-export async function generateCharacter(apiKey, theme, uploadedImage = null, characterDescription = '') {
+export async function generateCharacter(apiKey, theme, uploadedImages = null, characterDescription = '') {
   const genAI = new GoogleGenerativeAI(apiKey)
   const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-image-preview' })
 
+  // 正規化為陣列
+  const images = !uploadedImages ? [] : Array.isArray(uploadedImages) ? uploadedImages : [uploadedImages]
+  const hasImages = images.length > 0
+
   // 清理主題，避免觸發安全過濾
   const cleanTheme = theme.trim()
-  
+
   let prompt = `Create a cute and friendly character design for messaging stickers.
 
 Theme: ${cleanTheme}
@@ -48,11 +52,16 @@ Design Requirements:
 ${IMAGE_VISIBILITY_RULES}`
 
   // 如果有上傳的參考圖片，在 prompt 中提及
-  if (uploadedImage && characterDescription.trim()) {
-    prompt += `\n- Use the uploaded reference image as a base for the character design
+  if (hasImages && characterDescription.trim()) {
+    prompt += images.length > 1
+      ? `\n- ${images.length} reference images are provided below, labeled [Reference image 1], [Reference image 2], etc. Use them as bases for the character design. The user's description may refer to specific images by number.
+- User's character description: ${characterDescription.trim()}`
+      : `\n- Use the uploaded reference image as a base for the character design
 - Additionally, incorporate the following character description: ${characterDescription.trim()}`
-  } else if (uploadedImage) {
-    prompt += `\n- Use the uploaded reference image as a base for the character design`
+  } else if (hasImages) {
+    prompt += images.length > 1
+      ? `\n- ${images.length} reference images are provided below, labeled [Reference image 1], [Reference image 2], etc. Use them together as bases for the character design.`
+      : `\n- Use the uploaded reference image as a base for the character design`
   }
 
   try {
@@ -63,10 +72,12 @@ ${IMAGE_VISIBILITY_RULES}`
       }]
     }]
 
-    // 如果有上傳的圖片，添加到 parts 中
-    if (uploadedImage) {
-      // 將 Data URL 轉換為 base64
-      const base64Data = uploadedImage.split(',')[1]
+    // 如果有上傳的圖片，帶編號添加到 parts 中
+    for (let i = 0; i < images.length; i++) {
+      if (images.length > 1) {
+        contents[0].parts.push({ text: `[Reference image ${i + 1}]:` })
+      }
+      const base64Data = images[i].split(',')[1]
       contents[0].parts.push({
         inlineData: {
           mimeType: 'image/png',
