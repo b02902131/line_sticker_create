@@ -1,5 +1,8 @@
 backlogs
 
+0401
+- [x] 角色儲存時所有圖片也都要存到專案資料夾（現在存 local storage 會丟失），可以用 LFS
+
 Next version (auto deploy)
 - [] 研究 line creator 有沒有 api 可以自動上架
 
