@@ -122,6 +122,9 @@ Thumbs.db
 # Local personal data (stickers, finances, plans, etc.)
 local/
 
+# Claude Code
+.claude/
+
 # Sticker build outputs
 build/
 
