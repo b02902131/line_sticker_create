@@ -1,10 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import './App.css'
 import { generateImageDescriptionsWithText, generateTextStyle, generateSingleDescription, generateSingleText, generateSingleDescriptionFromText } from './utils/gemini'
-import { generateCharacter, generateStickerWithText, generateMainImage, generateTabImage, generateGrid8Image } from './utils/characterGenerator'
-import { createGrid8, splitGrid8, removeBackgroundSimple, fileToDataURL } from './utils/imageUtils'
+import { generateCharacter, generateStickerWithText, generateMainImage, generateGrid8Image } from './utils/characterGenerator'
+import { createGrid8, splitGrid8, removeBackgroundSimple, createTabFromCharacter, fileToDataURL } from './utils/imageUtils'
 import { downloadAsZip } from './utils/zipDownloader'
-import { saveCharacterImages, loadCharacterImages, deleteCharacterImages } from './utils/imageStore'
+import { saveCharacterImages, loadCharacterImages, deleteCharacterImages, hasCharacterImages } from './utils/imageStore'
 import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
 
 const LS_KEY = 'stampmill_draft'
@@ -20,6 +20,193 @@ function loadCharacters() {
 function loadCharDescs(charId) {
   try { return JSON.parse(localStorage.getItem(`stampmill_descs_${charId}`)) || [] }
   catch { return [] }
+}
+
+function TabCropper({ imageDataUrl, onConfirm, onCancel }) {
+  const canvasRef = useRef(null)
+  const imgRef = useRef(null)
+  const [imgLoaded, setImgLoaded] = useState(false)
+  const [crop, setCrop] = useState(null)
+  const [dragging, setDragging] = useState(null) // 'move' | 'resize' | null
+  const dragStart = useRef(null)
+
+  // 圖片載入後初始化裁切框
+  useEffect(() => {
+    if (!imgLoaded || !imgRef.current) return
+    const img = imgRef.current
+    const displayW = img.width
+    const displayH = img.height
+    const ratio = 96 / 74
+    // 初始裁切框：佔圖片 60%，居中
+    let cropW, cropH
+    if (displayW / displayH > ratio) {
+      cropH = displayH * 0.6
+      cropW = cropH * ratio
+    } else {
+      cropW = displayW * 0.6
+      cropH = cropW / ratio
+    }
+    setCrop({
+      x: (displayW - cropW) / 2,
+      y: (displayH - cropH) / 2,
+      w: cropW,
+      h: cropH
+    })
+  }, [imgLoaded])
+
+  // 繪製 overlay
+  useEffect(() => {
+    if (!crop || !canvasRef.current || !imgRef.current) return
+    const canvas = canvasRef.current
+    const img = imgRef.current
+    canvas.width = img.width
+    canvas.height = img.height
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    // 暗色遮罩
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    // 裁切區域清除遮罩
+    ctx.clearRect(crop.x, crop.y, crop.w, crop.h)
+    // 裁切框邊框
+    ctx.strokeStyle = '#4CAF50'
+    ctx.lineWidth = 2
+    ctx.strokeRect(crop.x, crop.y, crop.w, crop.h)
+    // 右下角 resize handle
+    ctx.fillStyle = '#4CAF50'
+    ctx.fillRect(crop.x + crop.w - 8, crop.y + crop.h - 8, 8, 8)
+  }, [crop])
+
+  const getPos = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect()
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    return { x: clientX - rect.left, y: clientY - rect.top }
+  }
+
+  const handleDown = (e) => {
+    e.preventDefault()
+    if (!crop) return
+    const pos = getPos(e)
+    // 判斷是 resize 還是 move
+    if (pos.x >= crop.x + crop.w - 16 && pos.y >= crop.y + crop.h - 16 &&
+        pos.x <= crop.x + crop.w && pos.y <= crop.y + crop.h) {
+      setDragging('resize')
+    } else if (pos.x >= crop.x && pos.x <= crop.x + crop.w &&
+               pos.y >= crop.y && pos.y <= crop.y + crop.h) {
+      setDragging('move')
+    }
+    dragStart.current = { ...pos, crop: { ...crop } }
+  }
+
+  const handleMove = (e) => {
+    if (!dragging || !dragStart.current || !imgRef.current) return
+    e.preventDefault()
+    const pos = getPos(e)
+    const dx = pos.x - dragStart.current.x
+    const dy = pos.y - dragStart.current.y
+    const orig = dragStart.current.crop
+    const maxW = imgRef.current.width
+    const maxH = imgRef.current.height
+    const ratio = 96 / 74
+
+    if (dragging === 'move') {
+      let nx = orig.x + dx
+      let ny = orig.y + dy
+      nx = Math.max(0, Math.min(nx, maxW - orig.w))
+      ny = Math.max(0, Math.min(ny, maxH - orig.h))
+      setCrop({ ...orig, x: nx, y: ny })
+    } else if (dragging === 'resize') {
+      let nw = Math.max(30, orig.w + dx)
+      let nh = nw / ratio
+      if (orig.x + nw > maxW) { nw = maxW - orig.x; nh = nw / ratio }
+      if (orig.y + nh > maxH) { nh = maxH - orig.y; nw = nh * ratio }
+      setCrop({ ...orig, w: nw, h: nh })
+    }
+  }
+
+  const handleUp = () => {
+    setDragging(null)
+    dragStart.current = null
+  }
+
+  const handleConfirm = () => {
+    if (!crop || !imgRef.current) return
+    const img = imgRef.current
+    // 換算回原圖座標
+    const natW = img.naturalWidth
+    const natH = img.naturalHeight
+    const scaleX = natW / img.width
+    const scaleY = natH / img.height
+    const sx = crop.x * scaleX
+    const sy = crop.y * scaleY
+    const sw = crop.w * scaleX
+    const sh = crop.h * scaleY
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 96
+    canvas.height = 74
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, 96, 74)
+
+    const origImg = new Image()
+    origImg.onload = () => {
+      ctx.drawImage(origImg, sx, sy, sw, sh, 0, 0, 96, 74)
+      onConfirm(canvas.toDataURL('image/png'))
+    }
+    origImg.src = imageDataUrl
+  }
+
+  return (
+    <div>
+      <h3>裁切標籤圖片</h3>
+      <p style={{ fontSize: '0.85em', color: '#888' }}>拖曳移動裁切框，右下角可調整大小（固定 96:74 比例）</p>
+      <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%' }}>
+        <img
+          ref={imgRef}
+          src={imageDataUrl}
+          alt="裁切來源"
+          onLoad={() => setImgLoaded(true)}
+          style={{ maxWidth: '400px', display: 'block' }}
+        />
+        {imgLoaded && (
+          <canvas
+            ref={canvasRef}
+            style={{ position: 'absolute', top: 0, left: 0, cursor: dragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+            onMouseDown={handleDown}
+            onMouseMove={handleMove}
+            onMouseUp={handleUp}
+            onMouseLeave={handleUp}
+            onTouchStart={handleDown}
+            onTouchMove={handleMove}
+            onTouchEnd={handleUp}
+          />
+        )}
+      </div>
+      {crop && (
+        <div style={{ marginTop: '10px' }}>
+          <p style={{ fontSize: '0.85em', color: '#666' }}>預覽：</p>
+          <canvas
+            ref={(el) => {
+              if (!el || !imgRef.current || !crop) return
+              el.width = 96; el.height = 74
+              const ctx = el.getContext('2d')
+              ctx.clearRect(0, 0, 96, 74)
+              const img = imgRef.current
+              const scaleX = img.naturalWidth / img.width
+              const scaleY = img.naturalHeight / img.height
+              ctx.drawImage(img, crop.x * scaleX, crop.y * scaleY, crop.w * scaleX, crop.h * scaleY, 0, 0, 96, 74)
+            }}
+            style={{ border: '1px solid #ddd', borderRadius: '4px' }}
+          />
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+        <button className="btn btn-success btn-inline" onClick={handleConfirm}>確認裁切</button>
+        <button className="btn btn-secondary btn-inline" onClick={onCancel}>取消</button>
+      </div>
+    </div>
+  )
 }
 
 function App() {
@@ -104,11 +291,23 @@ function App() {
     setCharacterDescription(char.description)
     setTheme(char.theme)
     setCharacterConfirmed(true)
-    setTextStyleConfirmed(false)
-    setDescriptions(loadCharDescs(char.id))
     setPage('sticker-produce')
 
-    // 嘗試從 IndexedDB 恢復已保存的圖片
+    // 先清除舊狀態
+    setGridImages([])
+    setProcessedGridImages([])
+    setCutImages([])
+    setMainImage(null)
+    setTabImage(null)
+    setBackgroundThreshold(240)
+    setCurrentStep(1)
+
+    // 讀取描述（優先從檔案）
+    const descs = await syncLoadDescs(char.id)
+    setDescriptions(descs)
+    setTextStyleConfirmed(descs.length > 0)
+
+    // 嘗試恢復已保存的圖片
     try {
       const saved = await loadCharacterImages(char.id)
       if (saved) {
@@ -121,6 +320,8 @@ function App() {
         // 根據已有數據跳到對應步驟
         if (saved.cutImages?.length > 0 && saved.mainImage && saved.tabImage) {
           setCurrentStep(9)
+        } else if (saved.cutImages?.length > 0) {
+          setCurrentStep(8)
         } else if (saved.processedGridImages?.length > 0) {
           setCurrentStep(7)
         } else if (saved.gridImages?.length > 0) {
@@ -132,12 +333,25 @@ function App() {
     }
   }
 
+  // 記錄哪些角色已有貼圖
+  const [charactersWithStickers, setCharactersWithStickers] = useState({})
+
   // 啟動時從本地檔案同步角色資料
   useEffect(() => {
     syncLoadCharacters().then(fileChars => {
       if (fileChars.length > 0) setCharacters(fileChars)
     })
   }, [])
+
+  // 檢查角色是否已有貼圖
+  useEffect(() => {
+    characters.forEach(char => {
+      if (charactersWithStickers[char.id] !== undefined) return
+      hasCharacterImages(char.id).then(has => {
+        if (has) setCharactersWithStickers(prev => ({ ...prev, [char.id]: true }))
+      })
+    })
+  }, [characters])
 
   // 自動暫存到 localStorage
   useEffect(() => {
@@ -158,6 +372,10 @@ function App() {
   const [tabImage, setTabImage] = useState(null) // 標籤圖片 96x74
   const [backgroundThreshold, setBackgroundThreshold] = useState(240) // 去背閾值
   const [processingBackground, setProcessingBackground] = useState(false) // 正在處理去背
+  const [regeneratingMain, setRegeneratingMain] = useState(false)
+  const [regeneratingTab, setRegeneratingTab] = useState(false)
+  const [tabCropSource, setTabCropSource] = useState(null) // 選擇裁切來源圖片
+  const [tabCropRect, setTabCropRect] = useState(null) // { x, y, w, h }
   const [previewBackgroundDark, setPreviewBackgroundDark] = useState(false) // 預覽背景是否為深色
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -747,11 +965,10 @@ function App() {
       const mainImgProcessed = await removeBackgroundSimple(mainImg, backgroundThreshold)
       setMainImage(mainImgProcessed)
 
-      // 生成標籤圖片（96x74，無文字，角色為主）
-      setProgress('正在生成標籤圖片（96×74，無文字）...')
-      const tabImg = await generateTabImage(apiKey, characterImage, theme)
-      const tabImgProcessed = await removeBackgroundSimple(tabImg, backgroundThreshold)
-      setTabImage(tabImgProcessed)
+      // 從角色圖裁切去背生成標籤圖片（96x74）
+      setProgress('正在生成標籤圖片（96×74）...')
+      const tabImg = await createTabFromCharacter(characterImage, backgroundThreshold)
+      setTabImage(tabImg)
 
       setCurrentStep(9)
       setProgress('完成！所有貼圖已生成，可以下載了')
@@ -829,6 +1046,73 @@ function App() {
       setProgress('')
     } finally {
       setRegeneratingGrid(null)
+    }
+  }
+
+  // 單張去背
+  const [removingBgIndex, setRemovingBgIndex] = useState(null)
+  const handleRemoveBgSingle = async (stickerIndex) => {
+    setRemovingBgIndex(stickerIndex)
+    try {
+      const processed = await removeBackgroundSimple(cutImages[stickerIndex], backgroundThreshold, null)
+      setCutImages(prev => {
+        const updated = [...prev]
+        updated[stickerIndex] = processed
+        return updated
+      })
+    } catch (error) {
+      alert(`去背失敗: ${error.message}`)
+    } finally {
+      setRemovingBgIndex(null)
+    }
+  }
+
+  // 批次重新去背（用於調整閾值後）
+  const handleReapplyBackground = async () => {
+    setProcessingBackground(true)
+    try {
+      // 重新去背 8 宮格
+      const newProcessed = []
+      for (let i = 0; i < gridImages.length; i++) {
+        const processed = await removeBackgroundSimple(gridImages[i], backgroundThreshold, null)
+        newProcessed.push(processed)
+      }
+      setProcessedGridImages(newProcessed)
+      // 重新裁切
+      let allCut = []
+      for (const processed of newProcessed) {
+        const cuts = await splitGrid8(processed, 370, 320)
+        allCut = allCut.concat(cuts)
+      }
+      const totalNeeded = descriptions.length || count
+      setCutImages(allCut.slice(0, totalNeeded))
+      // 重新去背主要圖片和標籤圖片
+      if (mainImage) {
+        const mainImg = await generateMainImage(apiKey, characterImage, theme)
+        setMainImage(await removeBackgroundSimple(mainImg, backgroundThreshold))
+      }
+      if (tabImage) {
+        setTabImage(await createTabFromCharacter(characterImage, backgroundThreshold))
+      }
+    } catch (error) {
+      alert(`重新去背失敗: ${error.message}`)
+    } finally {
+      setProcessingBackground(false)
+    }
+  }
+
+  // 標籤圖片去背
+  const [removingTabBg, setRemovingTabBg] = useState(false)
+  const handleRemoveTabBg = async () => {
+    if (!tabImage) return
+    setRemovingTabBg(true)
+    try {
+      const processed = await removeBackgroundSimple(tabImage, backgroundThreshold, null)
+      setTabImage(processed)
+    } catch (error) {
+      alert(`標籤圖片去背失敗: ${error.message}`)
+    } finally {
+      setRemovingTabBg(false)
     }
   }
 
@@ -912,7 +1196,7 @@ function App() {
                       </div>
                       <div className="character-card-actions">
                         <button className="btn btn-primary btn-inline" onClick={() => handleSelectCharacter(char)}>
-                          產貼圖
+                          {charactersWithStickers[char.id] ? '繼續編輯' : '產貼圖'}
                         </button>
                         <button
                           className="btn btn-secondary btn-inline"
@@ -1503,7 +1787,38 @@ function App() {
         {cutImages.length > 0 && currentStep >= 8 && (
           <div className="step-section">
             <h2>{currentStep === 9 ? '步驟 9: 完成並下載' : '步驟 8: 裁切完成'}</h2>
-            
+
+            {/* 去背調整（可收合） */}
+            <div className="preview-group">
+              <details>
+                <summary style={{ cursor: 'pointer', fontWeight: 'bold', fontSize: '16px', padding: '8px 0' }}>
+                  調整去背（閾值：{backgroundThreshold}）
+                </summary>
+                <div className="form-group" style={{ marginTop: '10px' }}>
+                  <label>去背閾值（數值越小，去背越強；數值越大，保留越多背景）</label>
+                  <div className="threshold-control">
+                    <input
+                      type="range"
+                      min="200"
+                      max="255"
+                      value={backgroundThreshold}
+                      onChange={(e) => setBackgroundThreshold(Number(e.target.value))}
+                      className="threshold-slider"
+                    />
+                    <span className="threshold-value">{backgroundThreshold}</span>
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleReapplyBackground}
+                    disabled={processingBackground}
+                    style={{ marginTop: '10px' }}
+                  >
+                    {processingBackground ? '處理中...' : '套用新閾值（全部重新去背）'}
+                  </button>
+                </div>
+              </details>
+            </div>
+
             {/* 主要圖片和標籤圖片 */}
             {(mainImage || tabImage) && (
               <div className="preview-group">
@@ -1513,18 +1828,93 @@ function App() {
                     <div className="preview-item">
                       <h4>主要圖片 (240×240)</h4>
                       <img src={mainImage} alt="主要圖片" className="preview-image main-image" />
+                      <button
+                        className="btn btn-secondary btn-inline"
+                        style={{ marginTop: '6px' }}
+                        disabled={loading || regeneratingMain}
+                        onClick={async () => {
+                          setRegeneratingMain(true)
+                          try {
+                            const mainImg = await generateMainImage(apiKey, characterImage, theme)
+                            const processed = await removeBackgroundSimple(mainImg, backgroundThreshold)
+                            setMainImage(processed)
+                          } catch (err) { alert('重產主要圖片失敗: ' + err.message) }
+                          finally { setRegeneratingMain(false) }
+                        }}
+                      >{regeneratingMain ? '生成中...' : '重產'}</button>
                     </div>
                   )}
                   {tabImage && (
                     <div className="preview-item">
                       <h4>標籤圖片 (96×74)</h4>
                       <img src={tabImage} alt="標籤圖片" className="preview-image tab-image" />
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                        <button
+                          className="btn btn-secondary btn-inline"
+                          disabled={loading || regeneratingTab}
+                          onClick={async () => {
+                            setRegeneratingTab(true)
+                            try {
+                              const tab = await createTabFromCharacter(characterImage, backgroundThreshold)
+                              setTabImage(tab)
+                            } catch (err) { alert('重產標籤圖片失敗: ' + err.message) }
+                            finally { setRegeneratingTab(false) }
+                          }}
+                        >{regeneratingTab ? '生成中...' : '重產'}</button>
+                        <button
+                          className="btn btn-secondary btn-inline"
+                          onClick={() => setTabCropSource('pick')}
+                        >從圖片選擇</button>
+                        <button
+                          className="btn btn-secondary btn-inline"
+                          disabled={removingTabBg}
+                          onClick={handleRemoveTabBg}
+                        >{removingTabBg ? '處理中...' : '去背'}</button>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
             )}
             
+            {/* 標籤圖片裁切 */}
+            {tabCropSource && (
+              <div className="preview-group" style={{ border: '2px solid #4CAF50', padding: '15px', borderRadius: '8px' }}>
+                {tabCropSource === 'pick' ? (
+                  <>
+                    <h3>選擇圖片來源</h3>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      {characterImage && (
+                        <div style={{ cursor: 'pointer', textAlign: 'center' }} onClick={() => { setTabCropSource(characterImage); setTabCropRect(null) }}>
+                          <img src={characterImage} alt="角色圖" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #ddd' }} />
+                          <p style={{ fontSize: '12px', margin: '4px 0 0' }}>角色圖</p>
+                        </div>
+                      )}
+                      {mainImage && (
+                        <div style={{ cursor: 'pointer', textAlign: 'center' }} onClick={() => { setTabCropSource(mainImage); setTabCropRect(null) }}>
+                          <img src={mainImage} alt="主要圖片" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #ddd' }} />
+                          <p style={{ fontSize: '12px', margin: '4px 0 0' }}>主要圖片</p>
+                        </div>
+                      )}
+                      {gridImages.map((img, i) => (
+                        <div key={i} style={{ cursor: 'pointer', textAlign: 'center' }} onClick={() => { setTabCropSource(img); setTabCropRect(null) }}>
+                          <img src={img} alt={`八宮格 ${i + 1}`} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #ddd' }} />
+                          <p style={{ fontSize: '12px', margin: '4px 0 0' }}>八宮格 {i + 1}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <button className="btn btn-secondary btn-inline" style={{ marginTop: '10px' }} onClick={() => setTabCropSource(null)}>取消</button>
+                  </>
+                ) : (
+                  <TabCropper
+                    imageDataUrl={tabCropSource}
+                    onConfirm={(result) => { setTabImage(result); setTabCropSource(null) }}
+                    onCancel={() => setTabCropSource(null)}
+                  />
+                )}
+              </div>
+            )}
+
             {/* 8宮格預覽 */}
             {gridImages.length > 0 && (
               <div className="preview-group">
@@ -1558,13 +1948,22 @@ function App() {
                       <br />
                       <strong>{descriptions[idx]?.text || ''}</strong>
                     </p>
-                    <button
-                      className="btn btn-regen"
-                      onClick={() => handleRegenerateSingleSticker(idx)}
-                      disabled={regeneratingIndex !== null || loading}
-                    >
-                      {regeneratingIndex === idx ? '生成中...' : '重產'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                      <button
+                        className="btn btn-regen"
+                        onClick={() => handleRegenerateSingleSticker(idx)}
+                        disabled={regeneratingIndex !== null || loading}
+                      >
+                        {regeneratingIndex === idx ? '生成中...' : '重產'}
+                      </button>
+                      <button
+                        className="btn btn-regen"
+                        onClick={() => handleRemoveBgSingle(idx)}
+                        disabled={removingBgIndex !== null || loading}
+                      >
+                        {removingBgIndex === idx ? '處理中...' : '去背'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
