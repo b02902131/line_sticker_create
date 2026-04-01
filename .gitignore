@@ -119,6 +119,9 @@ dist
 .DS_Store
 Thumbs.db
 
+# Sticker build outputs
+build/
+
 # Local character data (synced from browser)
 data/
 !data/images/
