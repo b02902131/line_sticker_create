@@ -121,3 +121,4 @@ Thumbs.db
 
 # Local character data (synced from browser)
 data/
+!data/images/
