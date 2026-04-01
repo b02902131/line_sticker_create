@@ -17,6 +17,11 @@ function loadCharacters() {
   try { return JSON.parse(localStorage.getItem(LS_CHARACTERS)) || [] } catch { return [] }
 }
 
+function loadCharDescs(charId) {
+  try { return JSON.parse(localStorage.getItem(`stampmill_descs_${charId}`)) || [] }
+  catch { return [] }
+}
+
 function App() {
   const draft = useRef(loadDraft()).current
 
@@ -33,8 +38,9 @@ function App() {
   // 角色設計
   const [characterDescription, setCharacterDescription] = useState(restoredChar?.description || '')
   const [theme, setTheme] = useState(restoredChar?.theme || '')
-  const [uploadedCharacterImage, setUploadedCharacterImage] = useState(null)
+  const [uploadedCharacterImages, setUploadedCharacterImages] = useState([])
   const [characterImage, setCharacterImage] = useState(restoredChar?.imageDataUrl || null)
+  const [characterImageHistory, setCharacterImageHistory] = useState([])
   const [characterConfirmed, setCharacterConfirmed] = useState(!!restoredChar)
   const [generatingCharacter, setGeneratingCharacter] = useState(false)
   const [characterName, setCharacterName] = useState('')
@@ -71,8 +77,9 @@ function App() {
     // 重置表單
     setCharacterDescription('')
     setTheme('')
-    setUploadedCharacterImage(null)
+    setUploadedCharacterImages([])
     setCharacterImage(null)
+    setCharacterImageHistory([])
     setCharacterConfirmed(false)
     setCharacterName('')
     setPage('home')
@@ -86,11 +93,6 @@ function App() {
     deleteCharacterImages(id).catch(() => {})
   }
 
-  // 讀取角色的 descriptions
-  const loadCharDescs = (charId) => {
-    try { return JSON.parse(localStorage.getItem(`stampmill_descs_${charId}`)) || [] }
-    catch { return [] }
-  }
   const saveCharDescs = (charId, descs) => {
     syncSaveDescs(charId, descs)
   }
@@ -182,28 +184,38 @@ function App() {
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
   }, [gridImages, processedGridImages, cutImages, mainImage, tabImage, selectedCharacter, backgroundThreshold])
 
-  // 共用：處理圖片檔案
-  const handleImageFile = useCallback(async (file) => {
-    if (file && file.type.startsWith('image/')) {
-      const dataUrl = await fileToDataURL(file)
-      setUploadedCharacterImage(dataUrl)
-      setCharacterImage(dataUrl)
+  // 共用：處理圖片檔案（支援多張）
+  const handleImageFiles = useCallback(async (files) => {
+    const newImages = []
+    for (const file of files) {
+      if (file && file.type.startsWith('image/')) {
+        const dataUrl = await fileToDataURL(file)
+        newImages.push(dataUrl)
+      }
+    }
+    if (newImages.length > 0) {
+      setUploadedCharacterImages(prev => {
+        const all = [...prev, ...newImages]
+        // 單張直接當角色圖用；多張需要 AI 生成
+        if (all.length === 1) setCharacterImage(all[0])
+        else setCharacterImage(null)
+        return all
+      })
       setCharacterConfirmed(false)
     }
-  }, [])
+  }, [characterImage])
 
   // 處理角色圖片上傳
   const handleCharacterUpload = async (e) => {
-    handleImageFile(e.target.files[0])
+    handleImageFiles(Array.from(e.target.files))
   }
 
   // 拖拉放
   const handleDrop = useCallback((e) => {
     e.preventDefault()
     setDragging(false)
-    const file = e.dataTransfer.files[0]
-    handleImageFile(file)
-  }, [handleImageFile])
+    handleImageFiles(Array.from(e.dataTransfer.files))
+  }, [handleImageFiles])
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault()
@@ -219,16 +231,17 @@ function App() {
     const handlePaste = (e) => {
       const items = e.clipboardData?.items
       if (!items) return
+      const files = []
       for (const item of items) {
         if (item.type.startsWith('image/')) {
-          handleImageFile(item.getAsFile())
-          break
+          files.push(item.getAsFile())
         }
       }
+      if (files.length > 0) handleImageFiles(files)
     }
     window.addEventListener('paste', handlePaste)
     return () => window.removeEventListener('paste', handlePaste)
-  }, [handleImageFile])
+  }, [handleImageFiles])
 
   // 步驟 4: 生成角色
   const handleGenerateCharacter = async () => {
@@ -236,7 +249,7 @@ function App() {
       alert('請輸入 Gemini API Key')
       return
     }
-    if (!characterDescription.trim() && !uploadedCharacterImage) {
+    if (!characterDescription.trim() && uploadedCharacterImages.length === 0) {
       alert('請輸入角色描述或上傳角色圖片')
       return
     }
@@ -245,8 +258,9 @@ function App() {
     setProgress('正在生成角色圖片...')
 
     try {
-      const character = await generateCharacter(apiKey, characterDescription || theme, uploadedCharacterImage, characterDescription)
+      const character = await generateCharacter(apiKey, characterDescription || theme, uploadedCharacterImages, characterDescription)
       setCharacterImage(character)
+      setCharacterImageHistory(prev => [...prev, character])
       setCharacterConfirmed(false) // 需要用戶確認
       setProgress('角色生成完成，請確認是否符合要求')
     } catch (error) {
@@ -925,7 +939,7 @@ function App() {
                 ← 返回首頁
               </button>
               <div className="form-group">
-                <label>角色名稱</label>
+                <label>角色名稱 <span style={{ fontWeight: 'normal', color: '#888', fontSize: '0.85em' }}>— 存檔用，不影響生成</span></label>
                 <input
                   type="text"
                   value={characterName}
@@ -935,53 +949,69 @@ function App() {
                 />
               </div>
               <div className="form-group">
-                <label>角色描述（可搭配上傳圖片一起使用）</label>
+                <label>角色描述 <span style={{ fontWeight: 'normal', color: '#888', fontSize: '0.85em' }}>— 告訴 AI 角色長怎樣，可搭配參考圖使用</span></label>
                 <textarea
                   value={characterDescription}
                   onChange={(e) => setCharacterDescription(e.target.value)}
-                  placeholder="請描述角色的外觀、特徵、風格等..."
+                  placeholder={"例：戴眼鏡的男生，黑色短髮，穿白色襯衫\n有多張參考圖時可指定：用第 1 張的臉搭配第 2 張的畫風"}
                   rows={3}
                   className="form-input"
                 />
               </div>
               <div className="form-group">
-                <label>上傳角色參考圖片（可搭配文字描述一起使用）</label>
+                <label>參考圖片 <span style={{ fontWeight: 'normal', color: '#888', fontSize: '0.85em' }}>— 可多張，AI 會依編號辨識</span></label>
                 <div
                   className={`drop-zone${dragging ? ' drop-zone--active' : ''}`}
                   onDrop={handleDrop}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                 >
-                  {uploadedCharacterImage ? (
+                  {uploadedCharacterImages.length > 0 ? (
                     <div>
-                      <img src={uploadedCharacterImage} alt="上傳的角色" className="preview-image-small" />
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {uploadedCharacterImages.map((img, i) => (
+                          <div key={i} style={{ position: 'relative' }}>
+                            <img src={img} alt={`參考圖 ${i + 1}`} className="preview-image-small" style={{ width: '100px', height: '100px', objectFit: 'cover' }} />
+                            <span style={{ position: 'absolute', bottom: '2px', left: '2px', background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: '4px', padding: '1px 5px', fontSize: '11px' }}>{i + 1}</span>
+                            <button
+                              style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontSize: '12px', lineHeight: '20px', padding: 0 }}
+                              onClick={() => {
+                                const next = uploadedCharacterImages.filter((_, j) => j !== i)
+                                setUploadedCharacterImages(next)
+                                if (next.length === 0) { setCharacterImage(null); setCharacterConfirmed(false) }
+                              }}
+                            >x</button>
+                          </div>
+                        ))}
+                      </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
-                        <p className="success-message" style={{ margin: 0 }}>✓ 已上傳角色圖片</p>
+                        <p className="success-message" style={{ margin: 0 }}>已上傳 {uploadedCharacterImages.length} 張參考圖</p>
                         <button
                           className="btn btn-secondary btn-inline"
-                          onClick={() => { setUploadedCharacterImage(null); setCharacterImage(null); setCharacterConfirmed(false) }}
+                          onClick={() => { setUploadedCharacterImages([]); setCharacterImage(null); setCharacterConfirmed(false) }}
                         >
-                          清除圖片
+                          清除全部
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <p className="drop-zone-hint">拖拉圖片到這裡、Ctrl+V 貼上、或點擊下方選擇檔案</p>
+                    <p className="drop-zone-hint">拖拉圖片到這裡、Ctrl+V 貼上、或點擊下方選擇檔案（可多選）</p>
                   )}
                   <input
                     type="file"
                     accept="image/*"
+                    multiple
                     onChange={handleCharacterUpload}
                     className="form-input"
                   />
                 </div>
               </div>
               <div className="form-group">
-                <label>主題說明</label>
+                <label>主題說明 <span style={{ fontWeight: 'normal', color: '#888', fontSize: '0.85em' }}>— 貼圖整體風格與情境，會影響所有貼圖</span></label>
                 <textarea
                   value={theme}
                   onChange={(e) => setTheme(e.target.value)}
-                  placeholder="請描述貼圖的主題、情境、用途等..."
+                  placeholder="例：台灣小吃擬人化、辦公室日常、可愛動物梗圖..."
                   rows={3}
                   className="form-input"
                 />
@@ -992,7 +1022,8 @@ function App() {
             <div className="step-section">
               <h2>角色預覽</h2>
 
-              {uploadedCharacterImage && characterImage && (
+              {/* 單張上傳：直接當角色圖 */}
+              {uploadedCharacterImages.length === 1 && characterImage && (
                 <div className="character-preview">
                   <img src={characterImage} alt="上傳的角色" className="preview-image character-image" />
                   <button className="btn btn-success" onClick={handleSaveCharacter} style={{ marginTop: '10px' }}>
@@ -1001,12 +1032,13 @@ function App() {
                 </div>
               )}
 
-              {!uploadedCharacterImage && (
+              {/* 無上傳 或 多張上傳：需要 AI 生成 */}
+              {(uploadedCharacterImages.length === 0 || uploadedCharacterImages.length > 1) && (
                 <>
                   <button
                     className="btn btn-primary"
                     onClick={handleGenerateCharacter}
-                    disabled={generatingCharacter || !apiKey || (!characterDescription.trim() && !theme.trim())}
+                    disabled={generatingCharacter || !apiKey || (!characterDescription.trim() && !theme.trim() && uploadedCharacterImages.length === 0)}
                   >
                     {generatingCharacter ? '生成中...' : '生成角色'}
                   </button>
@@ -1022,6 +1054,25 @@ function App() {
                           重新生成
                         </button>
                       </div>
+                      {characterImageHistory.length > 1 && (
+                        <div style={{ marginTop: '12px' }}>
+                          <p style={{ fontSize: '0.85em', color: '#888', marginBottom: '6px' }}>生成歷史（點擊選用）</p>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            {characterImageHistory.map((img, i) => (
+                              <img
+                                key={i}
+                                src={img}
+                                alt={`歷史 ${i + 1}`}
+                                onClick={() => setCharacterImage(img)}
+                                style={{
+                                  width: '64px', height: '64px', objectFit: 'cover', borderRadius: '6px', cursor: 'pointer',
+                                  border: img === characterImage ? '3px solid #4CAF50' : '2px solid #ddd'
+                                }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
