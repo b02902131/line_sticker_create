@@ -119,6 +119,9 @@ dist
 .DS_Store
 Thumbs.db
 
+# Local personal data (stickers, finances, plans, etc.)
+local/
+
 # Sticker build outputs
 build/
 
