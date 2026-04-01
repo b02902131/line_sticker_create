@@ -7,7 +7,7 @@
 每組貼圖一個資料夾，資料夾名稱為貼圖組代號（英文或拼音），內含：
 
 ```
-listings/
+stickers/
 ├── README.md                  # 本檔案
 ├── template.md                # 上架資訊模板
 └── {sticker-set-name}/
