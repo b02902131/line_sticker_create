@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import './App.css'
 import { generateImageDescriptionsWithText, generateTextStyle, generateSingleDescription, generateSingleText, generateSingleDescriptionFromText } from './utils/gemini'
 import { generateCharacter, generateStickerWithText, generateMainImage, generateGrid8Image } from './utils/characterGenerator'
-import { createGrid8, splitGrid8, removeBackgroundSimple, createTabFromCharacter, fileToDataURL } from './utils/imageUtils'
+import { createGrid8, splitGrid8, removeBackgroundSimple, removeBackgroundFromPoint, removeBackgroundByColor, pickColorFromImage, createTabFromCharacter, fileToDataURL } from './utils/imageUtils'
 import { downloadAsZip } from './utils/zipDownloader'
 import { saveCharacterImages, loadCharacterImages, deleteCharacterImages, hasCharacterImages } from './utils/imageStore'
 import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
@@ -314,9 +314,12 @@ function App() {
         if (saved.gridImages?.length > 0) setGridImages(saved.gridImages)
         if (saved.processedGridImages?.length > 0) setProcessedGridImages(saved.processedGridImages)
         if (saved.cutImages?.length > 0) setCutImages(saved.cutImages)
+        if (saved.rawCutImages?.length > 0) setRawCutImages(saved.rawCutImages)
         if (saved.mainImage) setMainImage(saved.mainImage)
         if (saved.tabImage) setTabImage(saved.tabImage)
+        if (saved.rawTabImage) setRawTabImage(saved.rawTabImage)
         if (saved.backgroundThreshold) setBackgroundThreshold(saved.backgroundThreshold)
+        if (saved.previewBgColor) setPreviewBgColor(saved.previewBgColor)
         // 根據已有數據跳到對應步驟
         if (saved.cutImages?.length > 0 && saved.mainImage && saved.tabImage) {
           setCurrentStep(9)
@@ -367,16 +370,31 @@ function App() {
   // 步驟 6-8: 8宮格生成、去背、裁切
   const [gridImages, setGridImages] = useState([]) // 8宮格圖片陣列
   const [processedGridImages, setProcessedGridImages] = useState([]) // 去背後的8宮格
-  const [cutImages, setCutImages] = useState([]) // 裁切後的單張圖片
+  const [cutImages, setCutImages] = useState([]) // 裁切後的單張圖片（已去背）
+  const [rawCutImages, setRawCutImages] = useState([]) // 裁切後的單張圖片（未去背原圖）
   const [mainImage, setMainImage] = useState(null) // 主要圖片 240x240
   const [tabImage, setTabImage] = useState(null) // 標籤圖片 96x74
   const [backgroundThreshold, setBackgroundThreshold] = useState(240) // 去背閾值
   const [processingBackground, setProcessingBackground] = useState(false) // 正在處理去背
   const [regeneratingMain, setRegeneratingMain] = useState(false)
+  const [removingMainBg, setRemovingMainBg] = useState(false)
+  const [rawMainImage, setRawMainImage] = useState(null) // 主要圖片未去背原圖
+  const [mainThreshold, setMainThreshold] = useState(null) // null = 用全域
+  const [rawTabImage, setRawTabImage] = useState(null) // 標籤圖片未去背原圖
+  const [tabThreshold, setTabThreshold] = useState(null) // null = 用全域
   const [regeneratingTab, setRegeneratingTab] = useState(false)
   const [tabCropSource, setTabCropSource] = useState(null) // 選擇裁切來源圖片
   const [tabCropRect, setTabCropRect] = useState(null) // { x, y, w, h }
-  const [previewBackgroundDark, setPreviewBackgroundDark] = useState(false) // 預覽背景是否為深色
+  const [previewBackgroundDark, setPreviewBackgroundDark] = useState(false) // 預覽背景是否為深色（Step 7 用）
+  const PREVIEW_BG_COLORS = [
+    { color: '#ffffff', label: '白', border: '#ddd' },
+    { color: '#ff00ff', label: '粉', border: '#ff00ff' },
+    { color: '#6699cc', label: '藍', border: '#6699cc' },
+    { color: '#000000', label: '黑', border: '#333' },
+    { color: '#006633', label: '綠', border: '#006633' },
+    { color: '#ff9933', label: '橘', border: '#ff9933' },
+  ]
+  const [previewBgColor, setPreviewBgColor] = useState('#ffffff') // Step 8-9 多色預覽
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState('')
@@ -394,13 +412,16 @@ function App() {
         gridImages,
         processedGridImages,
         cutImages,
+        rawCutImages,
         mainImage,
         tabImage,
-        backgroundThreshold
+        rawTabImage,
+        backgroundThreshold,
+        previewBgColor
       }).catch(err => console.warn('保存圖片到 IndexedDB 失敗:', err))
     }, 1000)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [gridImages, processedGridImages, cutImages, mainImage, tabImage, selectedCharacter, backgroundThreshold])
+  }, [gridImages, processedGridImages, cutImages, rawCutImages, mainImage, tabImage, rawTabImage, selectedCharacter, backgroundThreshold, previewBgColor])
 
   // 共用：處理圖片檔案（支援多張）
   const handleImageFiles = useCallback(async (files) => {
@@ -942,33 +963,43 @@ function App() {
 
     try {
       const allCutImages = []
+      const allRawCutImages = []
       const gridCount = processedGridImages.length
 
       for (let gridIndex = 0; gridIndex < gridCount; gridIndex++) {
         setProgress(`正在裁切第 ${gridIndex + 1}/${gridCount} 張8宮格...`)
         const cutCells = await splitGrid8(processedGridImages[gridIndex], 370, 320)
-        
+        // 也從原圖裁切保留未去背版本
+        const rawCutCells = await splitGrid8(gridImages[gridIndex], 370, 320)
+
         // 計算這個8宮格實際有多少張貼圖
         const startIndex = gridIndex * 8
         const endIndex = Math.min(startIndex + 8, count)
         const actualCutCount = endIndex - startIndex
-        
+
         allCutImages.push(...cutCells.slice(0, actualCutCount))
+        allRawCutImages.push(...rawCutCells.slice(0, actualCutCount))
       }
 
       setCutImages(allCutImages)
+      setRawCutImages(allRawCutImages)
       setProgress('裁切完成！正在生成主要圖片和標籤圖片...')
 
-      // 生成主要圖片（240x240，無文字）
-      setProgress('正在生成主要圖片（240×240，無文字）...')
-      const mainImg = await generateMainImage(apiKey, characterImage, theme)
-      const mainImgProcessed = await removeBackgroundSimple(mainImg, backgroundThreshold)
-      setMainImage(mainImgProcessed)
+      // 生成主要圖片（240x240，無文字）— 已有則跳過
+      if (!mainImage) {
+        setProgress('正在生成主要圖片（240×240，無文字）...')
+        const mainImg = await generateMainImage(apiKey, characterImage, theme)
+        setRawMainImage(mainImg)
+        const mainImgProcessed = await removeBackgroundSimple(mainImg, backgroundThreshold)
+        setMainImage(mainImgProcessed)
+      }
 
-      // 從角色圖裁切去背生成標籤圖片（96x74）
-      setProgress('正在生成標籤圖片（96×74）...')
-      const tabImg = await createTabFromCharacter(characterImage, backgroundThreshold)
-      setTabImage(tabImg)
+      // 從角色圖裁切去背生成標籤圖片（96x74）— 已有則跳過
+      if (!tabImage) {
+        setProgress('正在生成標籤圖片（96×74）...')
+        const tabImg = await createTabFromCharacter(characterImage, backgroundThreshold)
+        setTabImage(tabImg)
+      }
 
       setCurrentStep(9)
       setProgress('完成！所有貼圖已生成，可以下載了')
@@ -1049,12 +1080,192 @@ function App() {
     }
   }
 
+  // 8宮格去背
+  const [removingBgGrid, setRemovingBgGrid] = useState(null)
+  const handleRemoveBgGrid = async (gridIndex) => {
+    setRemovingBgGrid(gridIndex)
+    try {
+      const processed = await removeBackgroundSimple(gridImages[gridIndex], backgroundThreshold, null)
+      setProcessedGridImages(prev => {
+        const updated = [...prev]
+        updated[gridIndex] = processed
+        return updated
+      })
+      // 重新裁切這組的 stickers
+      const cuts = await splitGrid8(processed, 370, 320)
+      const rawCuts = await splitGrid8(gridImages[gridIndex], 370, 320)
+      setCutImages(prev => {
+        const updated = [...prev]
+        const startIdx = gridIndex * 8
+        cuts.forEach((cut, i) => {
+          if (startIdx + i < updated.length) {
+            updated[startIdx + i] = cut
+          }
+        })
+        return updated
+      })
+      setRawCutImages(prev => {
+        const updated = [...prev]
+        const startIdx = gridIndex * 8
+        rawCuts.forEach((cut, i) => {
+          if (startIdx + i < updated.length) {
+            updated[startIdx + i] = cut
+          }
+        })
+        return updated
+      })
+    } catch (error) {
+      alert(`去背失敗: ${error.message}`)
+    } finally {
+      setRemovingBgGrid(null)
+    }
+  }
+
+  // 點擊去背
+  const [clickRemoveTarget, setClickRemoveTarget] = useState(null) // { index, type } type: 'sticker' | 'main' | 'tab'
+  const [clickRemoveThreshold, setClickRemoveThreshold] = useState(30)
+  const [clickRemoveMode, setClickRemoveMode] = useState('flood') // 'flood' | 'color'
+  const [clickRemoveUndoStack, setClickRemoveUndoStack] = useState([])
+  // 吸色去除狀態
+  const [pickedColor, setPickedColor] = useState(null) // { r, g, b }
+  const [colorRectStart, setColorRectStart] = useState(null) // { x, y } 圖片座標
+  const [colorRectEnd, setColorRectEnd] = useState(null) // { x, y } 圖片座標
+  const [isDraggingRect, setIsDraggingRect] = useState(false)
+  const clickRemoveCanvasRef = useRef(null)
+  const clickRemoveLensRef = useRef(null)
+
+  const getClickRemoveSource = () => {
+    if (!clickRemoveTarget) return null
+    const { index, type } = clickRemoveTarget
+    if (type === 'sticker') return cutImages[index]
+    if (type === 'grid') return processedGridImages[index] || gridImages[index]
+    if (type === 'main') return mainImage
+    if (type === 'tab') return tabImage
+    return null
+  }
+
+  const handleClickRemoveUndo = () => {
+    if (clickRemoveUndoStack.length === 0 || !clickRemoveTarget) return
+    const prev = clickRemoveUndoStack[clickRemoveUndoStack.length - 1]
+    setClickRemoveUndoStack(stack => stack.slice(0, -1))
+    const { index, type } = clickRemoveTarget
+    if (type === 'sticker') {
+      setCutImages(arr => { const u = [...arr]; u[index] = prev; return u })
+    } else if (type === 'grid') {
+      setProcessedGridImages(arr => { const u = [...arr]; u[index] = prev; return u })
+    } else if (type === 'main') {
+      setMainImage(prev)
+    } else if (type === 'tab') {
+      setTabImage(prev)
+    }
+  }
+
+  const canvasToImageCoords = (e) => {
+    const canvas = clickRemoveCanvasRef.current
+    if (!canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    return {
+      x: Math.floor((e.clientX - rect.left) * scaleX),
+      y: Math.floor((e.clientY - rect.top) * scaleY),
+    }
+  }
+
+  const applyResult = (result) => {
+    const { index, type } = clickRemoveTarget
+    if (type === 'sticker') {
+      setCutImages(prev => { const u = [...prev]; u[index] = result; return u })
+    } else if (type === 'grid') {
+      setProcessedGridImages(prev => { const u = [...prev]; u[index] = result; return u })
+    } else if (type === 'main') {
+      setMainImage(result)
+    } else if (type === 'tab') {
+      setTabImage(result)
+    }
+  }
+
+  // flood 模式：點擊即去背
+  const handleClickRemoveFlood = async (e) => {
+    const pt = canvasToImageCoords(e)
+    if (!pt || !clickRemoveTarget) return
+    const source = getClickRemoveSource()
+    if (!source) return
+    setClickRemoveUndoStack(stack => [...stack, source])
+    try {
+      const result = await removeBackgroundFromPoint(source, pt.x, pt.y, clickRemoveThreshold)
+      applyResult(result)
+    } catch (error) {
+      alert(`去背失敗: ${error.message}`)
+    }
+  }
+
+  // color 模式：第一步吸色
+  const handleColorPick = async (e) => {
+    const pt = canvasToImageCoords(e)
+    if (!pt) return
+    const source = getClickRemoveSource()
+    if (!source) return
+    const color = await pickColorFromImage(source, pt.x, pt.y)
+    setPickedColor(color)
+    setColorRectStart(null)
+    setColorRectEnd(null)
+  }
+
+  // color 模式：框選開始
+  const handleColorRectMouseDown = (e) => {
+    if (!pickedColor) return
+    const pt = canvasToImageCoords(e)
+    if (!pt) return
+    setColorRectStart(pt)
+    setColorRectEnd(pt)
+    setIsDraggingRect(true)
+  }
+
+  // color 模式：框選中
+  const handleColorRectMouseMove = (e) => {
+    if (!isDraggingRect) return
+    const pt = canvasToImageCoords(e)
+    if (pt) setColorRectEnd(pt)
+  }
+
+  // color 模式：框選結束 → 去除
+  const handleColorRectMouseUp = async () => {
+    if (!isDraggingRect || !colorRectStart || !colorRectEnd || !pickedColor) {
+      setIsDraggingRect(false)
+      return
+    }
+    setIsDraggingRect(false)
+    const source = getClickRemoveSource()
+    if (!source) return
+
+    const x = Math.min(colorRectStart.x, colorRectEnd.x)
+    const y = Math.min(colorRectStart.y, colorRectEnd.y)
+    const w = Math.abs(colorRectEnd.x - colorRectStart.x)
+    const h = Math.abs(colorRectEnd.y - colorRectStart.y)
+    if (w < 2 || h < 2) return
+
+    setClickRemoveUndoStack(stack => [...stack, source])
+    try {
+      const result = await removeBackgroundByColor(source, pickedColor, clickRemoveThreshold, { x, y, w, h })
+      applyResult(result)
+    } catch (error) {
+      alert(`吸色去除失敗: ${error.message}`)
+    }
+    setColorRectStart(null)
+    setColorRectEnd(null)
+  }
+
   // 單張去背
   const [removingBgIndex, setRemovingBgIndex] = useState(null)
+  const [stickerThresholds, setStickerThresholds] = useState({}) // per-sticker 閾值
+  const getStickerThreshold = (idx) => stickerThresholds[idx] ?? backgroundThreshold
   const handleRemoveBgSingle = async (stickerIndex) => {
     setRemovingBgIndex(stickerIndex)
     try {
-      const processed = await removeBackgroundSimple(cutImages[stickerIndex], backgroundThreshold, null)
+      const threshold = getStickerThreshold(stickerIndex)
+      const source = rawCutImages[stickerIndex] || cutImages[stickerIndex]
+      const processed = await removeBackgroundSimple(source, threshold, null)
       setCutImages(prev => {
         const updated = [...prev]
         updated[stickerIndex] = processed
@@ -1067,11 +1278,61 @@ function App() {
     }
   }
 
+  // 單張重新裁切
+  const [recutGridIndex, setRecutGridIndex] = useState(null)
+  const handleRecutSingle = async (gridIndex) => {
+    setRecutGridIndex(gridIndex)
+    try {
+      const src = processedGridImages[gridIndex] || gridImages[gridIndex]
+      const cuts = await splitGrid8(src, 370, 320)
+      const rawCuts = await splitGrid8(gridImages[gridIndex], 370, 320)
+      const startIdx = gridIndex * 8
+      setCutImages(prev => {
+        const u = [...prev]
+        cuts.forEach((cut, i) => { if (startIdx + i < u.length) u[startIdx + i] = cut })
+        return u
+      })
+      setRawCutImages(prev => {
+        const u = [...prev]
+        rawCuts.forEach((raw, i) => { if (startIdx + i < u.length) u[startIdx + i] = raw })
+        return u
+      })
+    } catch (err) {
+      alert('重新裁切失敗: ' + err.message)
+    } finally {
+      setRecutGridIndex(null)
+    }
+  }
+
+  // 全部重新裁切（從目前的 processedGridImages）
+  const [recutting, setRecutting] = useState(false)
+  const handleRecut = async () => {
+    setRecutting(true)
+    try {
+      let allCut = []
+      let allRaw = []
+      for (let i = 0; i < processedGridImages.length; i++) {
+        const src = processedGridImages[i] || gridImages[i]
+        const cuts = await splitGrid8(src, 370, 320)
+        const rawCuts = await splitGrid8(gridImages[i], 370, 320)
+        allCut = allCut.concat(cuts)
+        allRaw = allRaw.concat(rawCuts)
+      }
+      const totalNeeded = descriptions.length || count
+      setCutImages(allCut.slice(0, totalNeeded))
+      setRawCutImages(allRaw.slice(0, totalNeeded))
+    } catch (err) {
+      alert('重新裁切失敗: ' + err.message)
+    } finally {
+      setRecutting(false)
+    }
+  }
+
   // 批次重新去背（用於調整閾值後）
   const handleReapplyBackground = async () => {
     setProcessingBackground(true)
     try {
-      // 重新去背 8 宮格
+      // 重新去背 8 宮格（從原圖）
       const newProcessed = []
       for (let i = 0; i < gridImages.length; i++) {
         const processed = await removeBackgroundSimple(gridImages[i], backgroundThreshold, null)
@@ -1080,19 +1341,25 @@ function App() {
       setProcessedGridImages(newProcessed)
       // 重新裁切
       let allCut = []
-      for (const processed of newProcessed) {
-        const cuts = await splitGrid8(processed, 370, 320)
+      let allRaw = []
+      for (let i = 0; i < newProcessed.length; i++) {
+        const cuts = await splitGrid8(newProcessed[i], 370, 320)
+        const rawCuts = await splitGrid8(gridImages[i], 370, 320)
         allCut = allCut.concat(cuts)
+        allRaw = allRaw.concat(rawCuts)
       }
       const totalNeeded = descriptions.length || count
       setCutImages(allCut.slice(0, totalNeeded))
-      // 重新去背主要圖片和標籤圖片
-      if (mainImage) {
-        const mainImg = await generateMainImage(apiKey, characterImage, theme)
-        setMainImage(await removeBackgroundSimple(mainImg, backgroundThreshold))
+      setRawCutImages(allRaw.slice(0, totalNeeded))
+      setStickerThresholds({}) // 重置個別閾值
+      // 重新去背主要圖片和標籤圖片（從原圖）
+      if (mainImage && rawMainImage) {
+        setMainImage(await removeBackgroundSimple(rawMainImage, backgroundThreshold))
+        setMainThreshold(null)
       }
       if (tabImage) {
         setTabImage(await createTabFromCharacter(characterImage, backgroundThreshold))
+        setTabThreshold(null)
       }
     } catch (error) {
       alert(`重新去背失敗: ${error.message}`)
@@ -1107,7 +1374,9 @@ function App() {
     if (!tabImage) return
     setRemovingTabBg(true)
     try {
-      const processed = await removeBackgroundSimple(tabImage, backgroundThreshold, null)
+      const source = rawTabImage || tabImage
+      const t = tabThreshold ?? backgroundThreshold
+      const processed = await removeBackgroundSimple(source, t, null)
       setTabImage(processed)
     } catch (error) {
       alert(`標籤圖片去背失敗: ${error.message}`)
@@ -1138,6 +1407,11 @@ function App() {
 
       const processedSticker = await removeBackgroundSimple(newStickerDataUrl, backgroundThreshold, null)
 
+      setRawCutImages(prev => {
+        const updated = [...prev]
+        updated[stickerIndex] = newStickerDataUrl
+        return updated
+      })
       setCutImages(prev => {
         const updated = [...prev]
         updated[stickerIndex] = processedSticker
@@ -1636,7 +1910,7 @@ function App() {
               <div className="threshold-control">
                 <input
                   type="range"
-                  min="200"
+                  min="0"
                   max="255"
                   value={backgroundThreshold}
                   onChange={async (e) => {
@@ -1788,35 +2062,49 @@ function App() {
           <div className="step-section">
             <h2>{currentStep === 9 ? '步驟 9: 完成並下載' : '步驟 8: 裁切完成'}</h2>
 
-            {/* 去背調整（可收合） */}
+            {/* 去背閾值 + 背景色預覽 */}
             <div className="preview-group">
-              <details>
-                <summary style={{ cursor: 'pointer', fontWeight: 'bold', fontSize: '16px', padding: '8px 0' }}>
-                  調整去背（閾值：{backgroundThreshold}）
-                </summary>
-                <div className="form-group" style={{ marginTop: '10px' }}>
-                  <label>去背閾值（數值越小，去背越強；數值越大，保留越多背景）</label>
-                  <div className="threshold-control">
-                    <input
-                      type="range"
-                      min="200"
-                      max="255"
-                      value={backgroundThreshold}
-                      onChange={(e) => setBackgroundThreshold(Number(e.target.value))}
-                      className="threshold-slider"
-                    />
-                    <span className="threshold-value">{backgroundThreshold}</span>
-                  </div>
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleReapplyBackground}
-                    disabled={processingBackground}
-                    style={{ marginTop: '10px' }}
-                  >
-                    {processingBackground ? '處理中...' : '套用新閾值（全部重新去背）'}
-                  </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '500', color: '#666', whiteSpace: 'nowrap' }}>去背閾值：</span>
+                <div className="threshold-control" style={{ flex: 1, minWidth: '200px' }}>
+                  <input
+                    type="range"
+                    min="0"
+                    max="255"
+                    value={backgroundThreshold}
+                    onChange={(e) => setBackgroundThreshold(Number(e.target.value))}
+                    className="threshold-slider"
+                  />
+                  <span className="threshold-value">{backgroundThreshold}</span>
                 </div>
-              </details>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleReapplyBackground}
+                  disabled={processingBackground}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {processingBackground ? '處理中...' : '全部重新去背'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '14px', fontWeight: '500', color: '#666' }}>預覽背景：</span>
+                {PREVIEW_BG_COLORS.map(bg => (
+                  <button
+                    key={bg.color}
+                    onClick={() => setPreviewBgColor(bg.color)}
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      backgroundColor: bg.color,
+                      border: previewBgColor === bg.color ? '3px solid #4CAF50' : `2px solid ${bg.border}`,
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                    title={bg.label}
+                  />
+                ))}
+              </div>
             </div>
 
             {/* 主要圖片和標籤圖片 */}
@@ -1827,7 +2115,7 @@ function App() {
                   {mainImage && (
                     <div className="preview-item">
                       <h4>主要圖片 (240×240)</h4>
-                      <img src={mainImage} alt="主要圖片" className="preview-image main-image" />
+                      <img src={mainImage} alt="主要圖片" className="preview-image main-image" style={{ background: previewBgColor }} />
                       <button
                         className="btn btn-secondary btn-inline"
                         style={{ marginTop: '6px' }}
@@ -1836,18 +2124,64 @@ function App() {
                           setRegeneratingMain(true)
                           try {
                             const mainImg = await generateMainImage(apiKey, characterImage, theme)
+                            setRawMainImage(mainImg)
                             const processed = await removeBackgroundSimple(mainImg, backgroundThreshold)
                             setMainImage(processed)
                           } catch (err) { alert('重產主要圖片失敗: ' + err.message) }
                           finally { setRegeneratingMain(false) }
                         }}
                       >{regeneratingMain ? '生成中...' : '重產'}</button>
+                      <button
+                        className="btn btn-secondary btn-inline"
+                        style={{ marginTop: '6px' }}
+                        disabled={loading || removingMainBg}
+                        onClick={async () => {
+                          setRemovingMainBg(true)
+                          try {
+                            const source = rawMainImage || mainImage
+                            const t = mainThreshold ?? backgroundThreshold
+                            const processed = await removeBackgroundSimple(source, t)
+                            setMainImage(processed)
+                          } catch (err) { alert('主要圖片去背失敗: ' + err.message) }
+                          finally { setRemovingMainBg(false) }
+                        }}
+                      >{removingMainBg ? '處理中...' : '去背'}</button>
+                      <label
+                        className="btn btn-secondary btn-inline"
+                        style={{ marginTop: '6px', cursor: 'pointer', textAlign: 'center' }}
+                      >
+                        上傳
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            const dataUrl = await fileToDataURL(file)
+                            setRawMainImage(dataUrl)
+                            setMainImage(dataUrl)
+                            e.target.value = ''
+                          }}
+                        />
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', width: '100%' }}>
+                        <input
+                          type="range"
+                          min="0"
+                          max="255"
+                          value={mainThreshold ?? backgroundThreshold}
+                          onChange={(e) => setMainThreshold(Number(e.target.value))}
+                          style={{ flex: 1, height: '4px' }}
+                        />
+                        <span style={{ fontSize: '11px', color: '#999', minWidth: '24px' }}>{mainThreshold ?? backgroundThreshold}</span>
+                      </div>
                     </div>
                   )}
                   {tabImage && (
                     <div className="preview-item">
                       <h4>標籤圖片 (96×74)</h4>
-                      <img src={tabImage} alt="標籤圖片" className="preview-image tab-image" />
+                      <img src={tabImage} alt="標籤圖片" className="preview-image tab-image" style={{ background: previewBgColor }} />
                       <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
                         <button
                           className="btn btn-secondary btn-inline"
@@ -1870,6 +2204,17 @@ function App() {
                           disabled={removingTabBg}
                           onClick={handleRemoveTabBg}
                         >{removingTabBg ? '處理中...' : '去背'}</button>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', width: '100%' }}>
+                        <input
+                          type="range"
+                          min="0"
+                          max="255"
+                          value={tabThreshold ?? backgroundThreshold}
+                          onChange={(e) => setTabThreshold(Number(e.target.value))}
+                          style={{ flex: 1, height: '4px' }}
+                        />
+                        <span style={{ fontSize: '11px', color: '#999', minWidth: '24px' }}>{tabThreshold ?? backgroundThreshold}</span>
                       </div>
                     </div>
                   )}
@@ -1922,17 +2267,47 @@ function App() {
                 <div className="grid-preview">
                   {gridImages.map((img, idx) => (
                     <div key={idx} className="grid-item">
-                      <img src={img} alt={`8宮�� ${idx + 1}`} className="preview-image grid-image" />
-                      <button
-                        className="btn btn-regen"
-                        onClick={() => handleRegenerateGrid(idx)}
-                        disabled={regeneratingGrid !== null || loading}
-                      >
-                        {regeneratingGrid === idx ? '生成中...' : '重產這組'}
-                      </button>
+                      <img src={processedGridImages[idx] || img} alt={`8宮格 ${idx + 1}`} className="preview-image grid-image" style={{ background: previewBgColor }} />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px' }}>
+                        <button
+                          className="btn btn-regen"
+                          onClick={() => handleRegenerateGrid(idx)}
+                          disabled={regeneratingGrid !== null || loading}
+                        >
+                          {regeneratingGrid === idx ? '...' : '重產'}
+                        </button>
+                        <button
+                          className="btn btn-regen"
+                          onClick={() => handleRemoveBgGrid(idx)}
+                          disabled={removingBgGrid !== null || loading}
+                        >
+                          {removingBgGrid === idx ? '...' : '去背'}
+                        </button>
+                        <button
+                          className="btn btn-regen"
+                          onClick={() => { setClickRemoveUndoStack([]); setPickedColor(null); setClickRemoveTarget({ index: idx, type: 'grid' }) }}
+                        >
+                          選去
+                        </button>
+                        <button
+                          className="btn btn-regen"
+                          onClick={() => handleRecutSingle(idx)}
+                          disabled={recutGridIndex !== null || cutImages.length === 0}
+                        >
+                          {recutGridIndex === idx ? '...' : '裁切'}
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
+                {cutImages.length > 0 && (
+                  <button
+                    className="btn btn-primary"
+                    style={{ marginTop: '10px', width: '100%' }}
+                    disabled={recutting}
+                    onClick={handleRecut}
+                  >{recutting ? '裁切中...' : '重新裁切'}</button>
+                )}
               </div>
             )}
 
@@ -1942,27 +2317,63 @@ function App() {
               <div className="sticker-grid">
                 {cutImages.map((img, idx) => (
                   <div key={idx} className="sticker-item">
-                    <img src={img} alt={`貼圖 ${idx + 1}`} className="preview-image sticker-image" />
+                    <img src={img} alt={`貼圖 ${idx + 1}`} className="preview-image sticker-image" style={{ background: previewBgColor }} />
                     <p className="sticker-info">
                       {descriptions[idx]?.description || `貼圖 ${idx + 1}`}
                       <br />
                       <strong>{descriptions[idx]?.text || ''}</strong>
                     </p>
-                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px' }}>
                       <button
                         className="btn btn-regen"
                         onClick={() => handleRegenerateSingleSticker(idx)}
                         disabled={regeneratingIndex !== null || loading}
+                        title="重新生成"
                       >
-                        {regeneratingIndex === idx ? '生成中...' : '重產'}
+                        {regeneratingIndex === idx ? '...' : '重產'}
                       </button>
                       <button
                         className="btn btn-regen"
                         onClick={() => handleRemoveBgSingle(idx)}
                         disabled={removingBgIndex !== null || loading}
+                        title="自動去背"
                       >
-                        {removingBgIndex === idx ? '處理中...' : '去背'}
+                        {removingBgIndex === idx ? '...' : '去背'}
                       </button>
+                      <button
+                        className="btn btn-regen"
+                        onClick={() => { setClickRemoveUndoStack([]); setPickedColor(null); setClickRemoveTarget({ index: idx, type: 'sticker' }) }}
+                        title="點擊指定區域去背"
+                      >
+                        選去
+                      </button>
+                      <label className="btn btn-regen" style={{ cursor: 'pointer', textAlign: 'center' }} title="上傳替換圖片">
+                        上傳
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            const dataUrl = await fileToDataURL(file)
+                            setRawCutImages(prev => { const u = [...prev]; u[idx] = dataUrl; return u })
+                            setCutImages(prev => { const u = [...prev]; u[idx] = dataUrl; return u })
+                            e.target.value = ''
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', width: '100%' }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="255"
+                        value={getStickerThreshold(idx)}
+                        onChange={(e) => setStickerThresholds(prev => ({ ...prev, [idx]: Number(e.target.value) }))}
+                        style={{ flex: 1, height: '4px' }}
+                      />
+                      <span style={{ fontSize: '11px', color: '#999', minWidth: '24px' }}>{getStickerThreshold(idx)}</span>
                     </div>
                   </div>
                 ))}
@@ -1989,7 +2400,284 @@ function App() {
           </>
         )}
       </div>
+
+      {/* 點擊去背 Modal */}
+      {clickRemoveTarget && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setClickRemoveTarget(null) }}
+        >
+          <div style={{
+            background: '#fff', borderRadius: '12px', padding: '20px',
+            maxWidth: '95vw', maxHeight: '90vh', width: '95vw',
+            display: 'flex', gap: '16px', overflow: 'hidden',
+          }}>
+            {/* 左側控制面板 */}
+            <div style={{
+              width: '280px', minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '10px',
+              overflowY: 'auto',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, fontSize: '16px' }}>選去</h3>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '4px 8px' }}
+                    disabled={clickRemoveUndoStack.length === 0}
+                    onClick={handleClickRemoveUndo}
+                  >復原</button>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '4px 8px' }}
+                    onClick={() => setClickRemoveTarget(null)}
+                  >關閉</button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  className={`btn ${clickRemoveMode === 'flood' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '12px', padding: '4px 10px', flex: 1 }}
+                  onClick={() => { setClickRemoveMode('flood'); setPickedColor(null) }}
+                >區域擴散</button>
+                <button
+                  className={`btn ${clickRemoveMode === 'color' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '12px', padding: '4px 10px', flex: 1 }}
+                  onClick={() => { setClickRemoveMode('color'); setPickedColor(null) }}
+                >吸色去除</button>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>容差：{clickRemoveThreshold}</div>
+                <input
+                  type="range" min="1" max="120"
+                  value={clickRemoveThreshold}
+                  onChange={(e) => setClickRemoveThreshold(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '13px', color: '#666' }}>去背閾值：
+                    {clickRemoveTarget?.type === 'sticker' ? getStickerThreshold(clickRemoveTarget.index)
+                      : clickRemoveTarget?.type === 'grid' ? backgroundThreshold
+                      : clickRemoveTarget?.type === 'main' ? (mainThreshold ?? backgroundThreshold)
+                      : (tabThreshold ?? backgroundThreshold)}
+                  </span>
+                </div>
+                <input
+                  type="range" min="0" max="255"
+                  value={clickRemoveTarget?.type === 'sticker' ? getStickerThreshold(clickRemoveTarget.index)
+                    : clickRemoveTarget?.type === 'grid' ? backgroundThreshold
+                    : clickRemoveTarget?.type === 'main' ? (mainThreshold ?? backgroundThreshold)
+                    : (tabThreshold ?? backgroundThreshold)}
+                  onChange={(e) => {
+                    const val = Number(e.target.value)
+                    if (clickRemoveTarget?.type === 'sticker') {
+                      setStickerThresholds(prev => ({ ...prev, [clickRemoveTarget.index]: val }))
+                    } else if (clickRemoveTarget?.type === 'grid') {
+                      setBackgroundThreshold(val)
+                    } else if (clickRemoveTarget?.type === 'main') {
+                      setMainThreshold(val)
+                    } else {
+                      setTabThreshold(val)
+                    }
+                  }}
+                  style={{ width: '100%' }}
+                />
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: '12px', padding: '4px 10px', marginTop: '6px', width: '100%' }}
+                  onClick={async () => {
+                    const t = clickRemoveTarget.type
+                    const source = t === 'sticker' ? (rawCutImages[clickRemoveTarget.index] || cutImages[clickRemoveTarget.index])
+                      : t === 'grid' ? gridImages[clickRemoveTarget.index]
+                      : t === 'main' ? (rawMainImage || mainImage)
+                      : (rawTabImage || tabImage)
+                    const threshold = t === 'sticker' ? getStickerThreshold(clickRemoveTarget.index)
+                      : t === 'grid' ? backgroundThreshold
+                      : t === 'main' ? (mainThreshold ?? backgroundThreshold)
+                      : (tabThreshold ?? backgroundThreshold)
+                    try {
+                      const result = await removeBackgroundSimple(source, threshold, null)
+                      applyResult(result)
+                    } catch (err) { alert('去背失敗: ' + err.message) }
+                  }}
+                >全圖去背</button>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>背景：</div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {PREVIEW_BG_COLORS.map(bg => (
+                    <button
+                      key={bg.color}
+                      onClick={() => setPreviewBgColor(bg.color)}
+                      style={{
+                        width: '28px', height: '28px',
+                        backgroundColor: bg.color,
+                        border: previewBgColor === bg.color ? '3px solid #4CAF50' : `2px solid ${bg.border}`,
+                        borderRadius: '4px', cursor: 'pointer', padding: 0,
+                      }}
+                      title={bg.label}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <p style={{ fontSize: '12px', color: '#888', margin: 0 }}>
+                {clickRemoveMode === 'flood'
+                  ? '點擊圖片，從該處往外擴散移除相近色。'
+                  : !pickedColor
+                    ? '步驟 1：點擊圖片吸取顏色。'
+                    : '步驟 2：拖曳框選去除範圍。'}
+              </p>
+
+              {clickRemoveMode === 'color' && pickedColor && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <div style={{
+                    width: '28px', height: '28px', borderRadius: '4px',
+                    backgroundColor: `rgb(${pickedColor.r},${pickedColor.g},${pickedColor.b})`,
+                    border: '2px solid #333',
+                  }} />
+                  <span style={{ fontSize: '12px', color: '#999' }}>
+                    rgb({pickedColor.r}, {pickedColor.g}, {pickedColor.b})
+                  </span>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '3px 8px' }}
+                    onClick={() => { setPickedColor(null); setColorRectStart(null); setColorRectEnd(null) }}
+                  >重新吸色</button>
+                </div>
+              )}
+            </div>
+
+            {/* 右側圖片區域 */}
+            <div
+              style={{
+                flex: 1, position: 'relative', overflow: 'hidden', cursor: 'crosshair',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              onMouseMove={(e) => {
+                if (clickRemoveMode === 'flood' || (clickRemoveMode === 'color' && !pickedColor)) {
+                  const lens = clickRemoveLensRef.current
+                  const canvas = clickRemoveCanvasRef.current
+                  const container = e.currentTarget
+                  if (!lens || !canvas) return
+                  const canvasRect = canvas.getBoundingClientRect()
+                  const containerRect = container.getBoundingClientRect()
+                  const x = e.clientX - canvasRect.left
+                  const y = e.clientY - canvasRect.top
+                  if (x < 0 || y < 0 || x > canvasRect.width || y > canvasRect.height) {
+                    lens.style.display = 'none'
+                    return
+                  }
+                  lens.style.display = 'block'
+                  const lensSize = 120
+                  const zoom = 4
+                  // lens 相對於 container 定位
+                  const offsetX = canvasRect.left - containerRect.left
+                  const offsetY = canvasRect.top - containerRect.top
+                  lens.style.left = `${x + offsetX - lensSize / 2}px`
+                  lens.style.top = `${y + offsetY - lensSize / 2}px`
+                  lens.style.width = `${lensSize}px`
+                  lens.style.height = `${lensSize}px`
+                  // 放大鏡背景：用 canvas 的顯示尺寸計算
+                  const bgW = canvasRect.width * zoom
+                  const bgH = canvasRect.height * zoom
+                  lens.style.backgroundSize = `${bgW}px ${bgH}px`
+                  lens.style.backgroundPosition = `-${x * zoom - lensSize / 2}px -${y * zoom - lensSize / 2}px`
+                } else {
+                  if (clickRemoveLensRef.current) clickRemoveLensRef.current.style.display = 'none'
+                }
+                if (clickRemoveMode === 'color' && pickedColor) {
+                  handleColorRectMouseMove(e)
+                }
+              }}
+              onMouseLeave={() => {
+                if (clickRemoveLensRef.current) clickRemoveLensRef.current.style.display = 'none'
+              }}
+              onMouseDown={(e) => {
+                if (clickRemoveMode === 'color' && pickedColor) handleColorRectMouseDown(e)
+              }}
+              onMouseUp={() => {
+                if (clickRemoveMode === 'color' && pickedColor) handleColorRectMouseUp()
+              }}
+            >
+              <ClickRemoveCanvas
+                canvasRef={clickRemoveCanvasRef}
+                src={getClickRemoveSource()}
+                bgColor={previewBgColor}
+                onClick={clickRemoveMode === 'flood' ? handleClickRemoveFlood
+                  : (!pickedColor ? handleColorPick : undefined)}
+              />
+              <div
+                ref={clickRemoveLensRef}
+                style={{
+                  display: 'none', position: 'absolute', pointerEvents: 'none',
+                  border: '2px solid #4CAF50', borderRadius: '50%',
+                  backgroundImage: `url(${getClickRemoveSource()})`,
+                  backgroundRepeat: 'no-repeat',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                }}
+              />
+              {colorRectStart && colorRectEnd && isDraggingRect && (() => {
+                const canvas = clickRemoveCanvasRef.current
+                const container = canvas?.parentElement
+                if (!canvas || !container) return null
+                const canvasRect = canvas.getBoundingClientRect()
+                const containerRect = container.getBoundingClientRect()
+                const sx = canvas.width / canvasRect.width
+                const sy = canvas.height / canvasRect.height
+                const offsetX = canvasRect.left - containerRect.left
+                const offsetY = canvasRect.top - containerRect.top
+                const left = Math.min(colorRectStart.x, colorRectEnd.x) / sx + offsetX
+                const top = Math.min(colorRectStart.y, colorRectEnd.y) / sy + offsetY
+                const width = Math.abs(colorRectEnd.x - colorRectStart.x) / sx
+                const height = Math.abs(colorRectEnd.y - colorRectStart.y) / sy
+                return (
+                  <div style={{
+                    position: 'absolute', left, top, width, height,
+                    border: '2px dashed #4CAF50', backgroundColor: 'rgba(76,175,80,0.15)',
+                    pointerEvents: 'none',
+                  }} />
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+function ClickRemoveCanvas({ canvasRef, src, bgColor, onClick }) {
+  useEffect(() => {
+    if (!src || !canvasRef.current) return
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const img = new Image()
+    img.onload = () => {
+      canvas.width = img.width
+      canvas.height = img.height
+      ctx.fillStyle = bgColor || '#ffffff'
+      ctx.fillRect(0, 0, img.width, img.height)
+      ctx.drawImage(img, 0, 0)
+    }
+    img.src = src
+  }, [src, bgColor, canvasRef])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      onClick={onClick}
+      style={{ maxWidth: '100%', maxHeight: '60vh', display: 'block' }}
+    />
   )
 }
 

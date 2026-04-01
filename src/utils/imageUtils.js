@@ -593,6 +593,156 @@ export async function removeBackgroundSimple(imageDataUrl, threshold = 240, mask
 }
 
 /**
+ * 從指定像素點開始 flood fill 去背
+ * @param {string} imageDataUrl - 圖片 data URL
+ * @param {number} startX - 起始 X 座標（原圖像素）
+ * @param {number} startY - 起始 Y 座標（原圖像素）
+ * @param {number} threshold - 顏色容差（與起始像素的 RGB 距離）
+ * @returns {Promise<string>} 去背後的 data URL
+ */
+export async function removeBackgroundFromPoint(imageDataUrl, startX, startY, threshold = 30) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0)
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const data = imageData.data
+      const width = canvas.width
+      const height = canvas.height
+
+      // 取得起始像素的顏色
+      const sIdx = (startY * width + startX) * 4
+      const sR = data[sIdx]
+      const sG = data[sIdx + 1]
+      const sB = data[sIdx + 2]
+
+      const toRemove = new Uint8Array(width * height)
+      const visited = new Uint8Array(width * height)
+
+      const queue = [{ x: startX, y: startY }]
+      toRemove[startY * width + startX] = 1
+      visited[startY * width + startX] = 1
+
+      while (queue.length > 0) {
+        const { x, y } = queue.shift()
+        const directions = [
+          { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+          { dx: 0, dy: -1 }, { dx: 0, dy: 1 }
+        ]
+        for (const { dx, dy } of directions) {
+          const nx = x + dx
+          const ny = y + dy
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+            const idx = ny * width + nx
+            if (!visited[idx]) {
+              visited[idx] = 1
+              const pIdx = idx * 4
+              const r = data[pIdx]
+              const g = data[pIdx + 1]
+              const b = data[pIdx + 2]
+              // 與起始像素的 RGB 距離
+              const dist = Math.sqrt((r - sR) ** 2 + (g - sG) ** 2 + (b - sB) ** 2)
+              if (dist <= threshold) {
+                toRemove[idx] = 1
+                queue.push({ x: nx, y: ny })
+              }
+            }
+          }
+        }
+      }
+
+      for (let i = 0; i < width * height; i++) {
+        if (toRemove[i]) {
+          data[i * 4 + 3] = 0
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0)
+      resolve(canvas.toDataURL('image/png'))
+    }
+
+    img.onerror = reject
+    img.src = imageDataUrl
+  })
+}
+
+/**
+ * 在指定矩形範圍內，移除與指定顏色接近的所有像素
+ * @param {string} imageDataUrl - 圖片 data URL
+ * @param {{r: number, g: number, b: number}} color - 目標顏色
+ * @param {number} threshold - 顏色容差（RGB 距離）
+ * @param {{x: number, y: number, w: number, h: number}} rect - 範圍矩形
+ * @returns {Promise<string>} 去背後的 data URL
+ */
+export async function removeBackgroundByColor(imageDataUrl, color, threshold, rect) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0)
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const data = imageData.data
+      const width = canvas.width
+
+      const x0 = Math.max(0, rect.x)
+      const y0 = Math.max(0, rect.y)
+      const x1 = Math.min(canvas.width, rect.x + rect.w)
+      const y1 = Math.min(canvas.height, rect.y + rect.h)
+
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = (y * width + x) * 4
+          const dist = Math.sqrt((data[i] - color.r) ** 2 + (data[i + 1] - color.g) ** 2 + (data[i + 2] - color.b) ** 2)
+          if (dist <= threshold) {
+            data[i + 3] = 0
+          }
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0)
+      resolve(canvas.toDataURL('image/png'))
+    }
+
+    img.onerror = reject
+    img.src = imageDataUrl
+  })
+}
+
+/**
+ * 從圖片取得指定像素的 RGB 顏色
+ */
+export async function pickColorFromImage(imageDataUrl, x, y) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0)
+      const data = ctx.getImageData(x, y, 1, 1).data
+      resolve({ r: data[0], g: data[1], b: data[2] })
+    }
+    img.onerror = reject
+    img.src = imageDataUrl
+  })
+}
+
+/**
  * 創建遮罩數據（用於塗抹工具）
  * @param {number} width - 圖片寬度
  * @param {number} height - 圖片高度
