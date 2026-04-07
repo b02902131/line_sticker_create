@@ -272,58 +272,55 @@ export async function removeGridLines(gridImageDataUrl, cellWidth = 370, cellHei
  * @param {number} cellHeight - 每格高度
  * @returns {Promise<Array<string>>} 裁切後的圖片陣列（Data URL）
  */
-export async function splitGrid8(gridImageDataUrl, cellWidth = 370, cellHeight = 320) {
+export async function splitGrid8(gridImageDataUrl, cellWidth = 370, cellHeight = 320, outputCellWidth = null, outputCellHeight = null) {
+  // outputCell* 為空時，產出尺寸 = 來源 cell 尺寸（無 downscale）
+  // 若有指定，會把每格從 cellWidth×cellHeight 縮放成 outputCellWidth×outputCellHeight（用於表情貼 2× 超採樣）
+  const outW = outputCellWidth || cellWidth
+  const outH = outputCellHeight || cellHeight
   return new Promise(async (resolve, reject) => {
     try {
       // 先移除間隔線
       const cleanedImageDataUrl = await removeGridLines(gridImageDataUrl, cellWidth, cellHeight)
-      
+
       const img = new Image()
       img.crossOrigin = 'anonymous'
-      
+
       img.onload = () => {
-        // 嚴格按照指定的每格尺寸裁切（370×320）
-        // 如果圖片尺寸不準確，強制調整為標準尺寸
-        const expectedWidth = cellWidth * 2  // 740
-        const expectedHeight = cellHeight * 4 // 1280
-        
-        // 如果實際尺寸與預期不符，先調整圖片尺寸
+        const expectedWidth = cellWidth * 2
+        const expectedHeight = cellHeight * 4
+
         let sourceImg = img
         let sourceCanvas = null
-        
+
         if (img.width !== expectedWidth || img.height !== expectedHeight) {
           console.warn(`8宮格圖片尺寸不準確: ${img.width}×${img.height}, 預期: ${expectedWidth}×${expectedHeight}, 將調整為標準尺寸`)
           sourceCanvas = document.createElement('canvas')
           sourceCanvas.width = expectedWidth
           sourceCanvas.height = expectedHeight
           const sourceCtx = sourceCanvas.getContext('2d')
-          
-          // 將圖片縮放/裁剪到標準尺寸
           sourceCtx.drawImage(img, 0, 0, expectedWidth, expectedHeight)
           sourceImg = sourceCanvas
         }
-      
+
       const canvas = document.createElement('canvas')
-      canvas.width = cellWidth
-      canvas.height = cellHeight
+      canvas.width = outW
+      canvas.height = outH
       const ctx = canvas.getContext('2d')
 
       const cells = []
 
       for (let row = 0; row < 4; row++) {
         for (let col = 0; col < 2; col++) {
-          // 嚴格按照標準尺寸裁切
           const x = col * cellWidth
           const y = row * cellHeight
 
-          // 清空畫布
-          ctx.clearRect(0, 0, cellWidth, cellHeight)
+          ctx.clearRect(0, 0, outW, outH)
 
-          // 裁切並繪製單格（嚴格按照370×320）
+          // 從來源 cellWidth×cellHeight 縮放繪製到 outW×outH
           ctx.drawImage(
             sourceImg,
             x, y, cellWidth, cellHeight,
-            0, 0, cellWidth, cellHeight
+            0, 0, outW, outH
           )
 
           cells.push(canvas.toDataURL('image/png'))

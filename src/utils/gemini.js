@@ -1,5 +1,12 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
+// [DEBUG] Gemini SDK request logger
+function logGeminiSDK(label, prompt) {
+  console.group(`[Gemini SDK] ${label}`)
+  console.log('Prompt:', typeof prompt === 'string' ? prompt : JSON.stringify(prompt, null, 2))
+  console.groupEnd()
+}
+
 /**
  * 生成文字風格描述（如果未提供）
  * @param {string} apiKey - Gemini API Key
@@ -42,13 +49,14 @@ export async function generateTextStyle(apiKey, theme, characterDescription) {
         })
         
         const generatePromise = (async () => {
+          logGeminiSDK('generateTextStyle', prompt)
           result = await model.generateContent(prompt)
           response = await result.response
-          
+
           if (!response) {
             throw new Error('API 回應為空')
           }
-          
+
           try {
             text = response.text()
           } catch (textError) {
@@ -193,9 +201,10 @@ ${excludedTextsPrompt}
         })
         
         const generatePromise = (async () => {
+          logGeminiSDK('generateImageDescriptionsWithText', prompt)
           result = await model.generateContent(prompt)
           response = await result.response
-          
+
           // 檢查 response 是否存在
           if (!response) {
             throw new Error('API 回應為空')
@@ -343,6 +352,7 @@ ${excludedTextsSection}
             })
             
             const generatePromise = (async () => {
+              logGeminiSDK('generateImageDescriptionsWithText (additional)', additionalPrompt)
               additionalResult = await model.generateContent(additionalPrompt)
               additionalResponse = await additionalResult.response
               
@@ -514,6 +524,7 @@ export async function generateSingleDescription(
 以 JSON 格式輸出：{"description": "描述", "text": "文字"}
 直接輸出 JSON，不要其他說明。`
 
+  logGeminiSDK('generateSingleDescription', prompt)
   const result = await model.generateContent(prompt)
   const response = await result.response
   const text = response.text()
@@ -551,6 +562,7 @@ export async function generateSingleText(
 要求：文字 1-5 個字，簡短有力，適合 LINE 貼圖。
 直接輸出文字本身，不要引號、不要其他說明。`
 
+  logGeminiSDK('generateSingleText', prompt)
   const result = await model.generateContent(prompt)
   return result.response.text().trim().replace(/^["'「」]|["'「」]$/g, '')
 }
@@ -580,6 +592,7 @@ export async function generateSingleDescriptionFromText(
 
 直接輸出描述文字，不要其他說明。`
 
+  logGeminiSDK('generateSingleDescriptionFromText', prompt)
   const result = await model.generateContent(prompt)
   return result.response.text().trim()
 }

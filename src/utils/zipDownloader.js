@@ -26,14 +26,18 @@ function dataURLtoBlob(dataUrl) {
  * @param {string} theme - 主題名稱（用於檔案命名）
  * @param {string} characterName - 角色名稱（優先用於檔案命名）
  */
-export async function downloadAsZip(images, mainImage, tabImage, theme, characterName) {
+export async function downloadAsZip(images, mainImage, tabImage, theme, characterName, spec = null) {
   try {
     const zip = new JSZip()
     const safeName = (characterName || theme || 'LINE_Stickers').replace(/[\/\\:*?"<>|]/g, '_')
     const folder = zip.folder(safeName)
 
-    // 添加主要圖片
-    if (mainImage) {
+    // 表情貼檔名為 001.png（3 位），一般貼圖為 01.png（2 位）
+    const isEmoji = spec?.key === 'emoji'
+    const padLen = isEmoji ? 3 : 2
+
+    // 添加主要圖片（表情貼模式跳過）
+    if (mainImage && spec?.hasMain !== false) {
       try {
         const resizedMain = await resizeImage(mainImage, 240, 240)
         const mainBlob = dataURLtoBlob(resizedMain)
@@ -61,9 +65,8 @@ export async function downloadAsZip(images, mainImage, tabImage, theme, characte
     // 添加貼圖圖片
     images.forEach((img) => {
       const blob = dataURLtoBlob(img.dataUrl)
-      // 檔案名格式：01.png, 02.png, ...
       const index = img.index || 1
-      const filename = `${String(index).padStart(2, '0')}.png`
+      const filename = `${String(index).padStart(padLen, '0')}.png`
       folder.file(filename, blob)
     })
 

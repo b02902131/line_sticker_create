@@ -1,5 +1,16 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
+// [DEBUG] Gemini API request logger
+function logGeminiRequest(label, contents, generationConfig) {
+  const textParts = contents?.[0]?.parts?.filter(p => p.text).map(p => p.text) || []
+  const imageParts = contents?.[0]?.parts?.filter(p => p.inlineData).length || 0
+  console.group(`[Gemini API] ${label}`)
+  console.log('Prompt:', textParts.join('\n---\n'))
+  console.log('Images attached:', imageParts)
+  console.log('Config:', generationConfig)
+  console.groupEnd()
+}
+
 const IMAGE_VISIBILITY_RULES = `
 Visibility & Background-Removal Rules:
 - Keep strong contrast between the subject/text box and the background.
@@ -87,6 +98,8 @@ ${IMAGE_VISIBILITY_RULES}`
     }
 
     // 使用 REST API 調用，添加超時控制（60秒）
+    const genConfig = { temperature: 0.8, topK: 40, topP: 0.95, maxOutputTokens: 2048 }
+    logGeminiRequest('generateCharacter', contents, genConfig)
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 60000)
 
@@ -101,12 +114,7 @@ ${IMAGE_VISIBILITY_RULES}`
           },
           body: JSON.stringify({
             contents,
-            generationConfig: {
-              temperature: 0.8,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 2048,
-            }
+            generationConfig: genConfig,
           }),
           signal: controller.signal
         }
@@ -316,11 +324,7 @@ ${IMAGE_VISIBILITY_RULES}
       }
     }
     
-    console.log('發送圖片生成請求:', {
-      promptLength: prompt.length,
-      base64Length: base64Data.length,
-      model: 'gemini-3-pro-image-preview'
-    })
+    logGeminiRequest('geminiImageAPI', requestBody.contents, requestBody.generationConfig)
 
     // 添加超時控制（60秒）
     const controller = new AbortController()
@@ -545,11 +549,7 @@ ${IMAGE_VISIBILITY_RULES}
       }
     }
     
-    console.log('發送圖片生成請求:', {
-      promptLength: prompt.length,
-      base64Length: base64Data.length,
-      model: 'gemini-3-pro-image-preview'
-    })
+    logGeminiRequest('geminiImageAPI', requestBody.contents, requestBody.generationConfig)
 
     // 添加超時控制（60秒）
     const controller = new AbortController()
@@ -698,21 +698,33 @@ export async function generateGrid8Image(
   characterImageDataUrl,
   stickers,
   textStyleDescription = '',
-  previousGridImageDataUrl = null
+  previousGridImageDataUrl = null,
+  spec = null
 ) {
-  const safeTextStyle = textStyleDescription && textStyleDescription.trim() 
-    ? textStyleDescription.trim() 
+  // 預設用一般貼圖規格
+  const cellW = spec?.generateCell?.w || 370
+  const cellH = spec?.generateCell?.h || 320
+  const gridW = spec?.grid?.w || (cellW * 2)
+  const gridH = spec?.grid?.h || (cellH * 4)
+  const aspectLabel = cellW === cellH ? '1:2 (Portrait, square cells)' : '9:16 (Vertical Portrait)'
+  const dividerXs = `x=${cellW}`
+  const dividerYs = `y=${cellH}, ${cellH * 2}, ${cellH * 3}`
+
+  const safeTextStyle = textStyleDescription && textStyleDescription.trim()
+    ? textStyleDescription.trim()
     : 'Cute and clear style with visible text box'
 
   // 構建包含8個貼圖描述的prompt
+  const hasAnyText = stickers.some(s => s.text?.trim())
   const stickersDescription = stickers.map((sticker, index) => {
     const row = Math.floor(index / 2) + 1
     const col = (index % 2) + 1
-    return `位置 ${row}-${col} (第${index + 1}個): ${sticker.description}, 文字: "${sticker.text}"`
+    const textPart = sticker.text?.trim() ? `, 文字: "${sticker.text}"` : ''
+    return `位置 ${row}-${col} (第${index + 1}個): ${sticker.description}${textPart}`
   }).join('\n')
 
   const prompt = `Create a single image containing 8 LINE stickers arranged in a 2-column by 4-row layout on a CLEAN WHITE CANVAS.
-  
+
 🚫🚫🚫 CRITICAL INSTRUCTION - INVISIBLE BOUNDARIES 🚫🚫🚫
 **DO NOT DRAW ANY GRID LINES, BORDERS, OR FRAMES.**
 The 8 stickers must float on a single, continuous white background.
@@ -731,38 +743,38 @@ This new grid must look like it belongs to the SAME sticker pack as the previous
 ` : ''}
 Background Requirement: **High contrast solid white background** in each area to facilitate automatic background removal.
 ${IMAGE_VISIBILITY_RULES}
-Target Aspect Ratio: 9:16 (Vertical Portrait)
-Text Style Guidelines: ${safeTextStyle}
+Target Aspect Ratio: ${aspectLabel}
+${hasAnyText ? `Text Style Guidelines: ${safeTextStyle}` : `⚠️ NO TEXT: These stickers are image-only. Do NOT include any text, words, letters, or text boxes in the stickers.`}
 
 ⚠️⚠️⚠️ ABSOLUTE SIZE REQUIREMENT - CRITICAL ⚠️⚠️⚠️
-The image must be EXACTLY 740 pixels wide × 1280 pixels high.
-Virtual Cell Size: 370px × 320px (for positioning only - DO NOT DRAW OUTLINES).
+The image must be EXACTLY ${gridW} pixels wide × ${gridH} pixels high.
+Virtual Cell Size: ${cellW}px × ${cellH}px (for positioning only - DO NOT DRAW OUTLINES).
 
 🚫🚫🚫 FORBIDDEN ELEMENTS - NO VISIBLE GRID 🚫🚫🚫
 - ❌ NO black lines, gray lines, or any colored lines between stickers.
-- ❌ NO vertical divider at x=370.
-- ❌ NO horizontal dividers at y=320, 640, 960.
+- ❌ NO vertical divider at ${dividerXs}.
+- ❌ NO horizontal dividers at ${dividerYs}.
 - ❌ NO frames around the stickers.
 - ❌ NO "window pane" effects.
 - ❌ The background must be pure, uninterrupted white pixels between the character graphics.
 
 **Layout Guide (Mental Model only - DO NOT DRAW):**
-- Column 1: Left half (x=0-369)
-- Column 2: Right half (x=370-739)
-- Row 1: Top (y=0-319)
-- Row 2: Upper Middle (y=320-639)
-- Row 3: Lower Middle (y=640-959)
-- Row 4: Bottom (y=960-1279)
+- Column 1: Left half (x=0-${cellW - 1})
+- Column 2: Right half (x=${cellW}-${gridW - 1})
+- Row 1: Top (y=0-${cellH - 1})
+- Row 2: Upper Middle (y=${cellH}-${cellH * 2 - 1})
+- Row 3: Lower Middle (y=${cellH * 2}-${cellH * 3 - 1})
+- Row 4: Bottom (y=${cellH * 3}-${gridH - 1})
 
 ${stickersDescription}
 
 MANDATORY REQUIREMENTS:
-1. **Content Boundary**: Keep all graphics well within the virtual cell boundaries (370x320) to avoid cropping.
-2. **Seamless Background**: The white background must flow continuously across the entire 740x1280 image.
+1. **Content Boundary**: Keep all graphics well within the virtual cell boundaries (${cellW}x${cellH}) to avoid cropping.
+2. **Seamless Background**: The white background must flow continuously across the entire ${gridW}x${gridH} image.
 3. **No Separators**: If you feel the urge to draw a line to separate stickers, STOP. Leave it empty white space.
 
 VERIFICATION CHECKLIST:
-✓ Image size 740x1280
+✓ Image size ${gridW}x${gridH}
 ✓ 8 distinct stickers
 ✓ **ZERO VISIBLE DIVIDING LINES**
 ✓ **Continuous white background**
@@ -770,7 +782,7 @@ VERIFICATION CHECKLIST:
 
 FINAL INSTRUCTION - READ CAREFULLY:
 Generate the complete 8-sticker sheet with STRICT adherence to the "Invisible Boundaries" rule.
-Each sticker occupies its own virtual 370x320 space, but there are NO VISIBLE LINES separating them.
+Each sticker occupies its own virtual ${cellW}x${cellH} space, but there are NO VISIBLE LINES separating them.
 **The final image must be clean, white, and continuous.**`
 
   try {
@@ -894,11 +906,7 @@ Each sticker occupies its own virtual 370x320 space, but there are NO VISIBLE LI
       }
     }
     
-    console.log('發送8宮格圖片生成請求:', {
-      promptLength: prompt.length,
-      base64Length: base64Data.length,
-      stickersCount: stickers.length
-    })
+    logGeminiRequest('generateGrid8Image', requestBody.contents, requestBody.generationConfig)
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 150000) // 8宮格需要更長時間，150秒（2.5分鐘）
@@ -1063,9 +1071,11 @@ The text "${text}" must have a CLEAR and VISIBLE text box/background:
 
   // 清理描述和文字，避免觸發安全過濾
   const cleanDescription = description.trim()
-  const cleanText = text.trim()
-  
-  const prompt = `Create a cute and friendly LINE sticker style illustration.
+  const cleanText = text?.trim() || ''
+  const hasText = cleanText.length > 0
+
+  const prompt = hasText
+    ? `Create a cute and friendly LINE sticker style illustration.
 
 Character Reference: Use the provided character image as reference for style and appearance.
 ${STRICT_CONSISTENCY_RULES}
@@ -1092,10 +1102,26 @@ ${IMAGE_VISIBILITY_RULES}
 9. High quality, professional digital illustration
 10. Safe, appropriate, and family-friendly content
 
-Final Verification: 
+Final Verification:
 - Ensure the text "${cleanText}" appears exactly 1 time (count: must be 1)
-- Verify the text "${cleanText}" has a clear, visible background box
-- Confirm the text is readable on both light and dark backgrounds`
+- Verify the text "${cleanText}" has a clear, visible background box`
+    : `Create a cute and friendly LINE sticker style illustration.
+
+Character Reference: Use the provided character image as reference for style and appearance.
+${STRICT_CONSISTENCY_RULES}
+Scene Description: ${cleanDescription}
+
+⚠️ NO TEXT: This sticker is image-only. Do NOT include any text, words, letters, or text boxes.
+
+Technical Requirements:
+1. Use the character design from the reference image
+2. Maintain visual consistency with the reference character
+3. White background (solid white color, not transparent)
+${IMAGE_VISIBILITY_RULES}
+4. Exact image dimensions: ${width}px width × ${height}px height
+5. Cute, expressive, and friendly illustration style suitable for messaging stickers
+6. High quality, professional digital illustration
+7. Safe, appropriate, and family-friendly content`
 
   try {
     // 檢查並提取 base64 數據
@@ -1151,11 +1177,7 @@ Final Verification:
       }
     }
     
-    console.log('發送圖片生成請求:', {
-      promptLength: prompt.length,
-      base64Length: base64Data.length,
-      model: 'gemini-3-pro-image-preview'
-    })
+    logGeminiRequest('geminiImageAPI', requestBody.contents, requestBody.generationConfig)
 
     // 添加超時控制（60秒）
     const controller = new AbortController()

@@ -6,6 +6,7 @@ import { createGrid8, splitGrid8, removeBackgroundSimple, removeBackgroundFromPo
 import { downloadAsZip } from './utils/zipDownloader'
 import { saveCharacterImages, loadCharacterImages, deleteCharacterImages, hasCharacterImages } from './utils/imageStore'
 import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
+import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from './utils/stickerSpecs'
 
 const LS_KEY = 'stampmill_draft'
 const LS_CHARACTERS = 'stampmill_characters'
@@ -22,7 +23,7 @@ function loadCharDescs(charId) {
   catch { return [] }
 }
 
-function TabCropper({ imageDataUrl, onConfirm, onCancel }) {
+function TabCropper({ imageDataUrl, onConfirm, onCancel, targetWidth = 96, targetHeight = 74, title = '裁切標籤圖片' }) {
   const canvasRef = useRef(null)
   const imgRef = useRef(null)
   const [imgLoaded, setImgLoaded] = useState(false)
@@ -36,7 +37,7 @@ function TabCropper({ imageDataUrl, onConfirm, onCancel }) {
     const img = imgRef.current
     const displayW = img.width
     const displayH = img.height
-    const ratio = 96 / 74
+    const ratio = targetWidth / targetHeight
     // 初始裁切框：佔圖片 60%，居中
     let cropW, cropH
     if (displayW / displayH > ratio) {
@@ -108,7 +109,7 @@ function TabCropper({ imageDataUrl, onConfirm, onCancel }) {
     const orig = dragStart.current.crop
     const maxW = imgRef.current.width
     const maxH = imgRef.current.height
-    const ratio = 96 / 74
+    const ratio = targetWidth / targetHeight
 
     if (dragging === 'move') {
       let nx = orig.x + dx
@@ -144,14 +145,14 @@ function TabCropper({ imageDataUrl, onConfirm, onCancel }) {
     const sh = crop.h * scaleY
 
     const canvas = document.createElement('canvas')
-    canvas.width = 96
-    canvas.height = 74
+    canvas.width = targetWidth
+    canvas.height = targetHeight
     const ctx = canvas.getContext('2d')
-    ctx.clearRect(0, 0, 96, 74)
+    ctx.clearRect(0, 0, targetWidth, targetHeight)
 
     const origImg = new Image()
     origImg.onload = () => {
-      ctx.drawImage(origImg, sx, sy, sw, sh, 0, 0, 96, 74)
+      ctx.drawImage(origImg, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight)
       onConfirm(canvas.toDataURL('image/png'))
     }
     origImg.src = imageDataUrl
@@ -159,8 +160,8 @@ function TabCropper({ imageDataUrl, onConfirm, onCancel }) {
 
   return (
     <div>
-      <h3>裁切標籤圖片</h3>
-      <p style={{ fontSize: '0.85em', color: '#888' }}>拖曳移動裁切框，右下角可調整大小（固定 96:74 比例）</p>
+      <h3>{title}</h3>
+      <p style={{ fontSize: '0.85em', color: '#888' }}>拖曳移動裁切框，右下角可調整大小（固定 {targetWidth}:{targetHeight} 比例）</p>
       <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%' }}>
         <img
           ref={imgRef}
@@ -189,13 +190,13 @@ function TabCropper({ imageDataUrl, onConfirm, onCancel }) {
           <canvas
             ref={(el) => {
               if (!el || !imgRef.current || !crop) return
-              el.width = 96; el.height = 74
+              el.width = targetWidth; el.height = targetHeight
               const ctx = el.getContext('2d')
-              ctx.clearRect(0, 0, 96, 74)
+              ctx.clearRect(0, 0, targetWidth, targetHeight)
               const img = imgRef.current
               const scaleX = img.naturalWidth / img.width
               const scaleY = img.naturalHeight / img.height
-              ctx.drawImage(img, crop.x * scaleX, crop.y * scaleY, crop.w * scaleX, crop.h * scaleY, 0, 0, 96, 74)
+              ctx.drawImage(img, crop.x * scaleX, crop.y * scaleY, crop.w * scaleX, crop.h * scaleY, 0, 0, targetWidth, targetHeight)
             }}
             style={{ border: '1px solid #ddd', borderRadius: '4px' }}
           />
@@ -241,6 +242,8 @@ function App() {
   const [generatingDescriptions, setGeneratingDescriptions] = useState(false)
   const [excludedTexts, setExcludedTexts] = useState(draft.excludedTexts || '')
   const [characterStance, setCharacterStance] = useState(draft.characterStance || '')
+  const [stickerTypeKey, setStickerTypeKey] = useState(draft.stickerTypeKey || DEFAULT_SPEC_KEY)
+  const stickerSpec = getSpec(stickerTypeKey)
 
   // 儲存角色到 localStorage + 本地檔案
   const saveCharacters = (chars) => {
@@ -294,6 +297,7 @@ function App() {
     setPage('sticker-produce')
 
     // 先清除舊狀態
+    setDescriptions([])
     setGridImages([])
     setProcessedGridImages([])
     setCutImages([])
@@ -358,9 +362,9 @@ function App() {
 
   // 自動暫存到 localStorage
   useEffect(() => {
-    const data = { apiKey, count, textStyle, excludedTexts, characterStance, selectedCharacterId: selectedCharacter?.id }
+    const data = { apiKey, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacterId: selectedCharacter?.id }
     localStorage.setItem(LS_KEY, JSON.stringify(data))
-  }, [apiKey, count, textStyle, excludedTexts, characterStance, selectedCharacter])
+  }, [apiKey, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacter])
 
   // descriptions by character
   useEffect(() => {
@@ -385,6 +389,7 @@ function App() {
   const [regeneratingTab, setRegeneratingTab] = useState(false)
   const [tabCropSource, setTabCropSource] = useState(null) // 選擇裁切來源圖片
   const [tabCropRect, setTabCropRect] = useState(null) // { x, y, w, h }
+  const [mainCropSource, setMainCropSource] = useState(null) // 主要圖片裁切來源
   const [previewBackgroundDark, setPreviewBackgroundDark] = useState(false) // 預覽背景是否為深色（Step 7 用）
   const PREVIEW_BG_COLORS = [
     { color: '#ffffff', label: '白', border: '#ddd' },
@@ -795,15 +800,12 @@ function App() {
       return
     }
 
-    // 檢查文字是否重複
+    // 檢查文字是否重複（只檢查有文字的貼圖）
     const textSet = new Set()
     const duplicateTexts = []
     for (let i = 0; i < descriptions.length; i++) {
       const text = descriptions[i].text?.trim()
-      if (!text) {
-        alert(`第 ${i + 1} 張貼圖的文字為空，請填寫`)
-        return
-      }
+      if (!text) continue
       if (textSet.has(text)) {
         duplicateTexts.push({ index: i + 1, text })
       } else {
@@ -874,7 +876,8 @@ function App() {
               characterImage,
               gridStickers,
               textStyle || '',
-              previousGrid
+              previousGrid,
+              stickerSpec
             )
           } catch (error) {
             retryCount++
@@ -968,9 +971,9 @@ function App() {
 
       for (let gridIndex = 0; gridIndex < gridCount; gridIndex++) {
         setProgress(`正在裁切第 ${gridIndex + 1}/${gridCount} 張8宮格...`)
-        const cutCells = await splitGrid8(processedGridImages[gridIndex], 370, 320)
+        const cutCells = await splitGrid8(processedGridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
         // 也從原圖裁切保留未去背版本
-        const rawCutCells = await splitGrid8(gridImages[gridIndex], 370, 320)
+        const rawCutCells = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
 
         // 計算這個8宮格實際有多少張貼圖
         const startIndex = gridIndex * 8
@@ -985,8 +988,8 @@ function App() {
       setRawCutImages(allRawCutImages)
       setProgress('裁切完成！正在生成主要圖片和標籤圖片...')
 
-      // 生成主要圖片（240x240，無文字）— 已有則跳過
-      if (!mainImage) {
+      // 生成主要圖片（240x240，無文字）— 已有則跳過。表情貼模式不需要主要圖片。
+      if (stickerSpec.hasMain && !mainImage) {
         setProgress('正在生成主要圖片（240×240，無文字）...')
         const mainImg = await generateMainImage(apiKey, characterImage, theme)
         setRawMainImage(mainImg)
@@ -1027,7 +1030,7 @@ function App() {
         dataUrl: dataUrl
       }))
 
-      await downloadAsZip(imagesForDownload, mainImage, tabImage, theme, selectedCharacter?.name)
+      await downloadAsZip(imagesForDownload, mainImage, tabImage, theme, selectedCharacter?.name, stickerSpec)
     } catch (error) {
       console.error('下載失敗:', error)
       alert(`下載失敗: ${error.message}`)
@@ -1050,7 +1053,7 @@ function App() {
       const previousGrid = gridIndex > 0 ? gridImages[gridIndex - 1]
         : (gridImages.length > 1 ? gridImages[gridIndex + 1] : null)
       const newGridImage = await generateGrid8Image(
-        apiKey, characterImage, gridStickers, textStyle || '', previousGrid
+        apiKey, characterImage, gridStickers, textStyle || '', previousGrid, stickerSpec
       )
       const newGridImages = [...gridImages]
       newGridImages[gridIndex] = newGridImage
@@ -1062,7 +1065,7 @@ function App() {
       newProcessed[gridIndex] = processed
       setProcessedGridImages(newProcessed)
 
-      const newCuts = await splitGrid8(processed)
+      const newCuts = await splitGrid8(processed, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
       const updatedCutImages = [...cutImages]
       const actualCount = endIdx - startIdx
       for (let i = 0; i < actualCount; i++) {
@@ -1092,8 +1095,8 @@ function App() {
         return updated
       })
       // 重新裁切這組的 stickers
-      const cuts = await splitGrid8(processed, 370, 320)
-      const rawCuts = await splitGrid8(gridImages[gridIndex], 370, 320)
+      const cuts = await splitGrid8(processed, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+      const rawCuts = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
       setCutImages(prev => {
         const updated = [...prev]
         const startIdx = gridIndex * 8
@@ -1284,8 +1287,8 @@ function App() {
     setRecutGridIndex(gridIndex)
     try {
       const src = processedGridImages[gridIndex] || gridImages[gridIndex]
-      const cuts = await splitGrid8(src, 370, 320)
-      const rawCuts = await splitGrid8(gridImages[gridIndex], 370, 320)
+      const cuts = await splitGrid8(src, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+      const rawCuts = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
       const startIdx = gridIndex * 8
       setCutImages(prev => {
         const u = [...prev]
@@ -1313,8 +1316,8 @@ function App() {
       let allRaw = []
       for (let i = 0; i < processedGridImages.length; i++) {
         const src = processedGridImages[i] || gridImages[i]
-        const cuts = await splitGrid8(src, 370, 320)
-        const rawCuts = await splitGrid8(gridImages[i], 370, 320)
+        const cuts = await splitGrid8(src, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+        const rawCuts = await splitGrid8(gridImages[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
         allCut = allCut.concat(cuts)
         allRaw = allRaw.concat(rawCuts)
       }
@@ -1343,8 +1346,8 @@ function App() {
       let allCut = []
       let allRaw = []
       for (let i = 0; i < newProcessed.length; i++) {
-        const cuts = await splitGrid8(newProcessed[i], 370, 320)
-        const rawCuts = await splitGrid8(gridImages[i], 370, 320)
+        const cuts = await splitGrid8(newProcessed[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+        const rawCuts = await splitGrid8(gridImages[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
         allCut = allCut.concat(cuts)
         allRaw = allRaw.concat(rawCuts)
       }
@@ -1401,8 +1404,8 @@ function App() {
         desc.description,
         desc.text,
         textStyle || '',
-        370,
-        320
+        stickerSpec.cell.w,
+        stickerSpec.cell.h
       )
 
       const processedSticker = await removeBackgroundSimple(newStickerDataUrl, backgroundThreshold, null)
@@ -1710,6 +1713,31 @@ function App() {
             <div className="step-section">
               <h2>文字描述（可編輯）</h2>
             
+            {/* 貼圖類型 */}
+            <div className="form-group" style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                貼圖類型：
+              </label>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                {Object.values(STICKER_SPECS).map(spec => (
+                  <label key={spec.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: stickerTypeKey === spec.key ? '2px solid #4a90e2' : '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', background: stickerTypeKey === spec.key ? '#eef5ff' : '#fff' }}>
+                    <input
+                      type="radio"
+                      name="stickerTypeKey"
+                      value={spec.key}
+                      checked={stickerTypeKey === spec.key}
+                      onChange={() => setStickerTypeKey(spec.key)}
+                    />
+                    <span>{spec.label}</span>
+                    <span style={{ color: '#888', fontSize: '12px' }}>({spec.cell.w}×{spec.cell.h})</span>
+                  </label>
+                ))}
+              </div>
+              <p style={{ marginTop: '5px', fontSize: '12px', color: '#666' }}>
+                💡 一般貼圖為 370×320 長方形，表情貼為 180×180 正方形（採 2× 超採樣生成以確保品質）。
+              </p>
+            </div>
+
             {/* 角色立場描述 */}
             <div className="form-group" style={{ marginBottom: '20px' }}>
               <label htmlFor="characterStance" style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
@@ -1816,6 +1844,13 @@ function App() {
                     onClick={handleExportDescriptions}
                   >
                     匯出文字清單
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-inline"
+                    onClick={() => { if (confirm('確定清空所有描述文字？')) setDescriptions([]) }}
+                    style={{ color: '#e74c3c' }}
+                  >
+                    清空全部
                   </button>
                 </div>
                 {descriptions.map((item, index) => (
@@ -2146,6 +2181,11 @@ function App() {
                           finally { setRemovingMainBg(false) }
                         }}
                       >{removingMainBg ? '處理中...' : '去背'}</button>
+                      <button
+                        className="btn btn-secondary btn-inline"
+                        style={{ marginTop: '6px' }}
+                        onClick={() => setMainCropSource('pick')}
+                      >從圖片選擇</button>
                       <label
                         className="btn btn-secondary btn-inline"
                         style={{ marginTop: '6px', cursor: 'pointer', textAlign: 'center' }}
@@ -2223,6 +2263,47 @@ function App() {
             )}
             
             {/* 標籤圖片裁切 */}
+            {/* 主要圖片裁切 */}
+            {mainCropSource && (
+              <div className="preview-group" style={{ border: '2px solid #2196F3', padding: '15px', borderRadius: '8px' }}>
+                {mainCropSource === 'pick' ? (
+                  <>
+                    <h3>選擇圖片來源（主要圖片）</h3>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      {characterImage && (
+                        <div style={{ cursor: 'pointer', textAlign: 'center' }} onClick={() => setMainCropSource(characterImage)}>
+                          <img src={characterImage} alt="角色圖" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #ddd' }} />
+                          <p style={{ fontSize: '12px', margin: '4px 0 0' }}>角色圖</p>
+                        </div>
+                      )}
+                      {gridImages.map((img, i) => (
+                        <div key={i} style={{ cursor: 'pointer', textAlign: 'center' }} onClick={() => setMainCropSource(img)}>
+                          <img src={img} alt={`八宮格 ${i + 1}`} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #ddd' }} />
+                          <p style={{ fontSize: '12px', margin: '4px 0 0' }}>八宮格 {i + 1}</p>
+                        </div>
+                      ))}
+                      {cutImages.map((img, i) => (
+                        <div key={`cut-${i}`} style={{ cursor: 'pointer', textAlign: 'center' }} onClick={() => setMainCropSource(img)}>
+                          <img src={img} alt={`貼圖 ${i + 1}`} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #ddd' }} />
+                          <p style={{ fontSize: '12px', margin: '4px 0 0' }}>貼圖 {i + 1}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <button className="btn btn-secondary btn-inline" style={{ marginTop: '10px' }} onClick={() => setMainCropSource(null)}>取消</button>
+                  </>
+                ) : (
+                  <TabCropper
+                    imageDataUrl={mainCropSource}
+                    targetWidth={240}
+                    targetHeight={240}
+                    title="裁切主要圖片"
+                    onConfirm={(result) => { setRawMainImage(result); setMainImage(result); setMainCropSource(null) }}
+                    onCancel={() => setMainCropSource(null)}
+                  />
+                )}
+              </div>
+            )}
+
             {tabCropSource && (
               <div className="preview-group" style={{ border: '2px solid #4CAF50', padding: '15px', borderRadius: '8px' }}>
                 {tabCropSource === 'pick' ? (
@@ -2381,7 +2462,7 @@ function App() {
             </div>
 
             {/* 下載按鈕 - 只在步驟 9 顯示 */}
-            {currentStep === 9 && mainImage && tabImage && (
+            {currentStep === 9 && (stickerSpec.hasMain ? mainImage : true) && (stickerSpec.hasTab ? tabImage : true) && (
               <div className="download-section">
                 <button
                   className="btn btn-download"
