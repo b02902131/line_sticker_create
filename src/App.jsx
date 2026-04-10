@@ -9,18 +9,9 @@ import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, s
 import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from './utils/stickerSpecs'
 
 const LS_KEY = 'stampmill_draft'
-const LS_CHARACTERS = 'stampmill_characters'
 
 function loadDraft() {
   try { return JSON.parse(localStorage.getItem(LS_KEY)) || {} } catch { return {} }
-}
-function loadCharacters() {
-  try { return JSON.parse(localStorage.getItem(LS_CHARACTERS)) || [] } catch { return [] }
-}
-
-function loadCharDescs(charId) {
-  try { return JSON.parse(localStorage.getItem(`stampmill_descs_${charId}`)) || [] }
-  catch { return [] }
 }
 
 function TabCropper({ imageDataUrl, onConfirm, onCancel, targetWidth = 96, targetHeight = 74, title = '裁切標籤圖片' }) {
@@ -214,9 +205,8 @@ function App() {
   const draft = useRef(loadDraft()).current
 
   // 頁面狀態
-  const [characters, setCharacters] = useState(loadCharacters)
-  const initChars = loadCharacters()
-  const restoredChar = draft.selectedCharacterId ? initChars.find(c => c.id === draft.selectedCharacterId) : null
+  const [characters, setCharacters] = useState([])
+  const restoredChar = null // 角色從 API 非同步載入
   const [selectedCharacter, setSelectedCharacter] = useState(restoredChar || null)
   const [page, setPage] = useState(restoredChar ? 'sticker-produce' : 'home')
 
@@ -239,7 +229,7 @@ function App() {
   const [textStyle, setTextStyle] = useState(draft.textStyle || '')
   const [generatingTextStyle, setGeneratingTextStyle] = useState(false)
   const [textStyleConfirmed, setTextStyleConfirmed] = useState(false)
-  const [descriptions, setDescriptions] = useState(restoredChar ? loadCharDescs(restoredChar.id) : [])
+  const [descriptions, setDescriptions] = useState([])
   const [generatingDescriptions, setGeneratingDescriptions] = useState(false)
   const [excludedTexts, setExcludedTexts] = useState(draft.excludedTexts || '')
   const [characterStance, setCharacterStance] = useState(draft.characterStance || '')
@@ -254,13 +244,18 @@ function App() {
 
   // 儲存角色（新建或更新）
   const handleSaveCharacter = () => {
-    if (!characterImage) { alert('請先生成或上傳角色圖片'); return }
+    if (!characterImage && !editingCharacterId && !characterName.trim() && !characterDescription.trim() && !theme.trim()) { alert('請至少填寫角色名稱、描述或主題'); return }
     const name = characterName.trim() || theme.trim() || characterDescription.trim().slice(0, 20) || '未命名角色'
     if (editingCharacterId) {
       // 更新既有角色
-      saveCharacters(characters.map(c => c.id === editingCharacterId ? {
-        ...c, name, description: characterDescription, theme, imageDataUrl: characterImage
-      } : c))
+      const updated = characters.map(c => c.id === editingCharacterId ? {
+        ...c, name, description: characterDescription, theme, imageDataUrl: characterImage || c.imageDataUrl
+      } : c)
+      const updatedChar = updated.find(c => c.id === editingCharacterId)
+      console.log('[SaveCharacter] editing', editingCharacterId)
+      console.log('[SaveCharacter] characterImage:', characterImage ? `有值(${characterImage.length})` : 'null')
+      console.log('[SaveCharacter] saved imageDataUrl:', updatedChar?.imageDataUrl ? `有值(${updatedChar.imageDataUrl.length})` : 'null')
+      saveCharacters(updated)
     } else {
       // 新建角色
       const newChar = {
@@ -1493,7 +1488,11 @@ function App() {
                 <div className="character-grid">
                   {characters.map(char => (
                     <div key={char.id} className="character-card">
-                      <img src={char.imageDataUrl} alt={char.name} className="character-card-img" />
+                      {char.imageDataUrl ? (
+                        <img src={char.imageDataUrl} alt={char.name} className="character-card-img" />
+                      ) : (
+                        <div className="character-card-img" style={{ background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: '0.85em' }}>草稿</div>
+                      )}
                       <div className="character-card-info">
                         <h3>{char.name}</h3>
                         {char.theme && <p className="character-card-theme">{char.theme}</p>}
@@ -1616,77 +1615,53 @@ function App() {
             <div className="step-section">
               <h2>角色預覽</h2>
 
-              {/* 單張上傳：直接當角色圖 */}
-              {uploadedCharacterImages.length === 1 && characterImage && (
+              {/* 角色圖預覽 */}
+              {characterImage && (
                 <div className="character-preview">
-                  <img src={characterImage} alt="上傳的角色" className="preview-image character-image" />
-                  <button className="btn btn-success" onClick={handleSaveCharacter} style={{ marginTop: '10px' }}>
-                    儲存角色
+                  <img src={characterImage} alt="角色圖" className="preview-image character-image" />
+                </div>
+              )}
+
+              {/* 操作按鈕 */}
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '10px' }}>
+                {/* 儲存 */}
+                {(characterImage || characterName.trim() || characterDescription.trim() || theme.trim()) && (
+                  <button className="btn btn-success" onClick={handleSaveCharacter}>
+                    {editingCharacterId ? '儲存變更' : (characterImage ? '儲存角色' : '先存草稿（無圖）')}
                   </button>
-                </div>
-              )}
+                )}
 
-              {/* 編輯模式：顯示現有角色圖，可直接儲存或重新生成 */}
-              {editingCharacterId && characterImage && uploadedCharacterImages.length === 0 && (
-                <div className="character-preview">
-                  <img src={characterImage} alt="現有角色" className="preview-image character-image" />
-                  <div className="character-actions">
-                    <button className="btn btn-success" onClick={handleSaveCharacter}>
-                      儲存變更
-                    </button>
-                    <button className="btn btn-primary" onClick={handleGenerateCharacter}
-                      disabled={generatingCharacter || !apiKey || (!characterDescription.trim() && !theme.trim())}
-                    >
-                      {generatingCharacter ? '生成中...' : '重新生成角色圖'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* 無上傳 或 多張上傳：需要 AI 生成 */}
-              {!editingCharacterId && (uploadedCharacterImages.length === 0 || uploadedCharacterImages.length > 1) && (
-                <>
+                {/* 生成 / 重新生成 */}
+                {(uploadedCharacterImages.length !== 1) && (
                   <button
                     className="btn btn-primary"
-                    onClick={handleGenerateCharacter}
+                    onClick={characterImage ? handleRegenerateCharacter : handleGenerateCharacter}
                     disabled={generatingCharacter || !apiKey || (!characterDescription.trim() && !theme.trim() && uploadedCharacterImages.length === 0)}
                   >
-                    {generatingCharacter ? '生成中...' : '生成角色'}
+                    {generatingCharacter ? '生成中...' : (characterImage ? '重新生成' : '生成角色')}
                   </button>
+                )}
+              </div>
 
-                  {characterImage && (
-                    <div className="character-preview">
-                      <img src={characterImage} alt="生成的角色" className="preview-image character-image" />
-                      <div className="character-actions">
-                        <button className="btn btn-success" onClick={handleSaveCharacter}>
-                          儲存角色
-                        </button>
-                        <button className="btn btn-secondary" onClick={handleRegenerateCharacter}>
-                          重新生成
-                        </button>
-                      </div>
-                      {characterImageHistory.length > 1 && (
-                        <div style={{ marginTop: '12px' }}>
-                          <p style={{ fontSize: '0.85em', color: '#888', marginBottom: '6px' }}>生成歷史（點擊選用）</p>
-                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                            {characterImageHistory.map((img, i) => (
-                              <img
-                                key={i}
-                                src={img}
-                                alt={`歷史 ${i + 1}`}
-                                onClick={() => setCharacterImage(img)}
-                                style={{
-                                  width: '64px', height: '64px', objectFit: 'cover', borderRadius: '6px', cursor: 'pointer',
-                                  border: img === characterImage ? '3px solid #4CAF50' : '2px solid #ddd'
-                                }}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
+              {/* 生成歷史 */}
+              {characterImageHistory.length > 1 && (
+                <div style={{ marginTop: '12px' }}>
+                  <p style={{ fontSize: '0.85em', color: '#888', marginBottom: '6px' }}>生成歷史（點擊選用）</p>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {characterImageHistory.map((img, i) => (
+                      <img
+                        key={i}
+                        src={img}
+                        alt={`歷史 ${i + 1}`}
+                        onClick={() => setCharacterImage(img)}
+                        style={{
+                          width: '64px', height: '64px', objectFit: 'cover', borderRadius: '6px', cursor: 'pointer',
+                          border: img === characterImage ? '3px solid #4CAF50' : '2px solid #ddd'
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           </>
