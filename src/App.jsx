@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import './App.css'
 import { generateImageDescriptionsWithText, generateTextStyle, generateSingleDescription, generateSingleText, generateSingleDescriptionFromText } from './utils/gemini'
 import { generateCharacter, generateStickerWithText, generateMainImage, generateGrid8Image } from './utils/characterGenerator'
-import { createGrid8, splitGrid8, removeBackgroundSimple, removeBackgroundFromPoint, removeBackgroundByColor, pickColorFromImage, createTabFromCharacter, fileToDataURL } from './utils/imageUtils'
+import { createGrid8, splitGrid8, cropSingleCell, removeBackgroundSimple, removeBackgroundFromPoint, removeBackgroundByColor, pickColorFromImage, createTabFromCharacter, fileToDataURL } from './utils/imageUtils'
 import { downloadAsZip } from './utils/zipDownloader'
 import { saveCharacterImages, loadCharacterImages, deleteCharacterImages, hasCharacterImages } from './utils/imageStore'
 import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
@@ -195,6 +195,146 @@ function TabCropper({ imageDataUrl, onConfirm, onCancel, targetWidth = 96, targe
       )}
       <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
         <button className="btn btn-success btn-inline" onClick={handleConfirm}>確認裁切</button>
+        <button className="btn btn-secondary btn-inline" onClick={onCancel}>取消</button>
+      </div>
+    </div>
+  )
+}
+
+function CropAdjustPanel({ gridSrc, cellRow, cellCol, cellW, cellH, initialOffset, initialZoom, onConfirm, onCancel }) {
+  const canvasRef = useRef(null)
+  const imgRef = useRef(null)
+  const [offset, setOffset] = useState(initialOffset || { x: 0, y: 0 })
+  const [zoom, setZoom] = useState(initialZoom || 1)
+  const [dragging, setDragging] = useState(false)
+  const dragStart = useRef(null)
+  const step = 5
+  const zoomStep = 0.05
+  const minZoom = 0.5
+  const maxZoom = 1.5
+
+  // 繪製：顯示整張 grid，在目標 cell 位置畫裁切框
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const img = imgRef.current
+    if (!canvas || !img || !img.complete) return
+    const ctx = canvas.getContext('2d')
+
+    canvas.width = img.width
+    canvas.height = img.height
+    ctx.drawImage(img, 0, 0)
+
+    // 計算實際 cell 尺寸（含縮放）
+    const baseCellW = img.width / 2
+    const baseCellH = img.height / 4
+    const sx = img.width / (cellW * 2)
+    const sy = img.height / (cellH * 4)
+    const cropW = baseCellW * zoom
+    const cropH = baseCellH * zoom
+    // 保持中心點
+    const centerX = cellCol * baseCellW + baseCellW / 2 + offset.x * sx
+    const centerY = cellRow * baseCellH + baseCellH / 2 + offset.y * sy
+    const cropX = centerX - cropW / 2
+    const cropY = centerY - cropH / 2
+
+    // 遮罩
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    // 清出裁切區
+    ctx.clearRect(cropX, cropY, cropW, cropH)
+    ctx.drawImage(img, cropX, cropY, cropW, cropH, cropX, cropY, cropW, cropH)
+
+    // 邊框
+    ctx.strokeStyle = '#4CAF50'
+    ctx.lineWidth = 3
+    ctx.strokeRect(cropX, cropY, cropW, cropH)
+    // 十字對準線
+    ctx.setLineDash([6, 6])
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(centerX, cropY)
+    ctx.lineTo(centerX, cropY + cropH)
+    ctx.moveTo(cropX, centerY)
+    ctx.lineTo(cropX + cropW, centerY)
+    ctx.stroke()
+    ctx.setLineDash([])
+  }, [gridSrc, cellRow, cellCol, cellW, cellH, offset, zoom])
+
+  // 載入圖片
+  useEffect(() => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => { imgRef.current = img; setOffset(o => ({ ...o })) }
+    img.src = gridSrc
+  }, [gridSrc])
+
+  // 拖拉
+  const handlePointerDown = (e) => {
+    setDragging(true)
+    dragStart.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const handlePointerMove = (e) => {
+    if (!dragging || !dragStart.current) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    // 螢幕像素 → logical offset
+    const dx = (e.clientX - dragStart.current.x) * (cellW * 2) / rect.width
+    const dy = (e.clientY - dragStart.current.y) * (cellH * 4) / rect.height
+    setOffset({ x: Math.round(dragStart.current.ox + dx), y: Math.round(dragStart.current.oy + dy) })
+  }
+  const handlePointerUp = () => { setDragging(false); dragStart.current = null }
+
+  // 鍵盤
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'ArrowLeft') setOffset(p => ({ ...p, x: p.x - step }))
+      else if (e.key === 'ArrowRight') setOffset(p => ({ ...p, x: p.x + step }))
+      else if (e.key === 'ArrowUp') setOffset(p => ({ ...p, y: p.y - step }))
+      else if (e.key === 'ArrowDown') setOffset(p => ({ ...p, y: p.y + step }))
+      else if (e.key === '+' || e.key === '=') setZoom(z => Math.min(maxZoom, z + zoomStep))
+      else if (e.key === '-') setZoom(z => Math.max(minZoom, z - zoomStep))
+      else if (e.key === 'Enter') onConfirm(offset.x, offset.y, zoom)
+      else if (e.key === 'Escape') onCancel()
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [offset, zoom, onConfirm, onCancel])
+
+  // 滾輪縮放
+  const handleWheel = useCallback((e) => {
+    e.preventDefault()
+    setZoom(z => {
+      const delta = e.deltaY > 0 ? zoomStep : -zoomStep
+      return Math.min(maxZoom, Math.max(minZoom, z + delta))
+    })
+  }, [])
+
+  return (
+    <div>
+      <canvas
+        ref={canvasRef}
+        style={{ border: '1px solid #ddd', borderRadius: '4px', width: '100%', cursor: dragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onWheel={handleWheel}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
+        <button className="btn btn-secondary btn-inline" onClick={() => setZoom(z => Math.max(minZoom, z - zoomStep))}>−</button>
+        <input type="range" min={minZoom * 100} max={maxZoom * 100} value={zoom * 100}
+          onChange={(e) => setZoom(Number(e.target.value) / 100)} style={{ flex: 1, height: '4px' }} />
+        <button className="btn btn-secondary btn-inline" onClick={() => setZoom(z => Math.min(maxZoom, z + zoomStep))}>+</button>
+        <span style={{ fontSize: '11px', color: '#999', minWidth: '36px' }}>{Math.round(zoom * 100)}%</span>
+      </div>
+      <p style={{ textAlign: 'center', fontSize: '0.8em', color: '#888', margin: '4px 0' }}>拖拉移動・滾輪縮放・方向鍵微調（偏移: {offset.x}, {offset.y}）</p>
+      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+        <button className="btn btn-success btn-inline" onClick={() => onConfirm(offset.x, offset.y, zoom)}>確認</button>
+        <button className="btn btn-secondary btn-inline" onClick={() => { setOffset({ x: 0, y: 0 }); setZoom(1) }}>重置</button>
         <button className="btn btn-secondary btn-inline" onClick={onCancel}>取消</button>
       </div>
     </div>
@@ -1146,6 +1286,43 @@ function App() {
     }
   }
 
+  // 微調裁切
+  const [cropAdjustTarget, setCropAdjustTarget] = useState(null)
+  const [cropAdjustHistory, setCropAdjustHistory] = useState({}) // { [stickerIdx]: { x, y, zoom } }
+  const [stickerHistory, setStickerHistory] = useState({}) // { [stickerIdx]: [{ raw, processed }] }
+
+  const handleOpenCropAdjust = (stickerIdx) => {
+    const gridIndex = Math.floor(stickerIdx / 8)
+    const cellIndex = stickerIdx % 8
+    const cellRow = Math.floor(cellIndex / 2)
+    const cellCol = cellIndex % 2
+    const prev = cropAdjustHistory[stickerIdx] || { x: 0, y: 0, zoom: 1 }
+    setCropAdjustTarget({ stickerIndex: stickerIdx, gridIndex, cellRow, cellCol, prevOffset: prev })
+  }
+
+  const handleCropAdjustConfirm = async (offsetX, offsetY, zoom = 1) => {
+    if (!cropAdjustTarget) return
+    const { stickerIndex, gridIndex, cellRow, cellCol } = cropAdjustTarget
+    const { generateCell, cell } = stickerSpec
+
+    // 記住這次的位置
+    setCropAdjustHistory(prev => ({ ...prev, [stickerIndex]: { x: offsetX, y: offsetY, zoom } }))
+
+    // 從去背後的 grid 裁切
+    const newCut = await cropSingleCell(
+      processedGridImages[gridIndex], cellRow, cellCol,
+      generateCell.w, generateCell.h, cell.w, cell.h, offsetX, offsetY, zoom
+    )
+    // 從原圖也裁切
+    const newRaw = await cropSingleCell(
+      gridImages[gridIndex], cellRow, cellCol,
+      generateCell.w, generateCell.h, cell.w, cell.h, offsetX, offsetY, zoom
+    )
+    setCutImages(prev => { const u = [...prev]; u[stickerIndex] = newCut; return u })
+    setRawCutImages(prev => { const u = [...prev]; u[stickerIndex] = newRaw; return u })
+    setCropAdjustTarget(null)
+  }
+
   // 點擊去背
   const [clickRemoveTarget, setClickRemoveTarget] = useState(null) // { index, type } type: 'sticker' | 'main' | 'tab'
   const [clickRemoveThreshold, setClickRemoveThreshold] = useState(30)
@@ -1420,6 +1597,17 @@ function App() {
     setProgress(`正在重新生成第 ${stickerIndex + 1} 張貼圖...`)
 
     try {
+      // 收集其他貼圖作為風格參考（均勻抽樣，上限受 20MB request size 限制）
+      const candidates = rawCutImages
+        .map((img, i) => ({ img, i }))
+        .filter(({ img, i }) => i !== stickerIndex && img)
+      const maxRef = 10
+      const step = Math.max(1, Math.floor(candidates.length / maxRef))
+      const refStickers = candidates
+        .filter((_, i) => i % step === 0)
+        .slice(0, maxRef)
+        .map(c => c.img)
+
       const newStickerDataUrl = await generateStickerWithText(
         apiKey,
         characterImage,
@@ -1427,10 +1615,21 @@ function App() {
         desc.text,
         textStyle || '',
         stickerSpec.cell.w,
-        stickerSpec.cell.h
+        stickerSpec.cell.h,
+        refStickers
       )
 
       const processedSticker = await removeBackgroundSimple(newStickerDataUrl, backgroundThreshold, null)
+
+      // 存版本歷史（把目前的版本存起來）
+      const currentRaw = rawCutImages[stickerIndex]
+      const currentProcessed = cutImages[stickerIndex]
+      if (currentRaw) {
+        setStickerHistory(prev => {
+          const history = prev[stickerIndex] || []
+          return { ...prev, [stickerIndex]: [...history, { raw: currentRaw, processed: currentProcessed }] }
+        })
+      }
 
       setRawCutImages(prev => {
         const updated = [...prev]
@@ -2424,12 +2623,31 @@ function App() {
                 {cutImages.map((img, idx) => (
                   <div key={idx} className="sticker-item">
                     <img src={img} alt={`貼圖 ${idx + 1}`} className="preview-image sticker-image" style={{ background: previewBgColor }} />
-                    <p className="sticker-info">
-                      {descriptions[idx]?.description || `貼圖 ${idx + 1}`}
-                      <br />
-                      <strong>{descriptions[idx]?.text || ''}</strong>
-                    </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px' }}>
+                    <div className="sticker-info" style={{ fontSize: '0.85em' }}>
+                      <input
+                        type="text"
+                        value={descriptions[idx]?.text || ''}
+                        onChange={(e) => setDescriptions(prev => {
+                          const u = [...prev]
+                          u[idx] = { ...u[idx], text: e.target.value }
+                          return u
+                        })}
+                        placeholder="貼圖文字"
+                        style={{ width: '100%', fontWeight: 'bold', fontSize: '1em', border: '1px solid #ddd', borderRadius: '4px', padding: '3px 6px', marginBottom: '4px' }}
+                      />
+                      <textarea
+                        value={descriptions[idx]?.description || ''}
+                        onChange={(e) => setDescriptions(prev => {
+                          const u = [...prev]
+                          u[idx] = { ...u[idx], description: e.target.value }
+                          return u
+                        })}
+                        placeholder="圖片描述"
+                        rows={2}
+                        style={{ width: '100%', fontSize: '0.9em', border: '1px solid #ddd', borderRadius: '4px', padding: '3px 6px', resize: 'vertical' }}
+                      />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: '4px' }}>
                       <button
                         className="btn btn-regen"
                         onClick={() => handleRegenerateSingleSticker(idx)}
@@ -2452,6 +2670,13 @@ function App() {
                         title="點擊指定區域去背"
                       >
                         選去
+                      </button>
+                      <button
+                        className="btn btn-regen"
+                        onClick={() => handleOpenCropAdjust(idx)}
+                        title="微調裁切位置"
+                      >
+                        微調
                       </button>
                       <label className="btn btn-regen" style={{ cursor: 'pointer', textAlign: 'center' }} title="上傳替換圖片">
                         上傳
@@ -2481,6 +2706,52 @@ function App() {
                       />
                       <span style={{ fontSize: '11px', color: '#999', minWidth: '24px' }}>{getStickerThreshold(idx)}</span>
                     </div>
+                    {stickerHistory[idx]?.length > 0 && (
+                      <div style={{ marginTop: '6px' }}>
+                        <p style={{ fontSize: '0.75em', color: '#888', margin: '0 0 4px' }}>歷史版本（點擊選用）</p>
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          {stickerHistory[idx].map((ver, vi) => (
+                            <img
+                              key={vi}
+                              src={ver.processed}
+                              alt={`v${vi + 1}`}
+                              onClick={() => {
+                                // 把目前的存進歷史，換成選中的版本
+                                const currentRaw = rawCutImages[idx]
+                                const currentProcessed = cutImages[idx]
+                                setStickerHistory(prev => {
+                                  const h = [...prev[idx]]
+                                  h.splice(vi, 1) // 移除選中的
+                                  h.push({ raw: currentRaw, processed: currentProcessed }) // 把目前的放回去
+                                  return { ...prev, [idx]: h }
+                                })
+                                setRawCutImages(prev => { const u = [...prev]; u[idx] = ver.raw; return u })
+                                setCutImages(prev => { const u = [...prev]; u[idx] = ver.processed; return u })
+                              }}
+                              style={{
+                                width: '48px', height: '48px', objectFit: 'contain', borderRadius: '4px',
+                                border: '2px solid #ddd', cursor: 'pointer', background: '#f5f5f5'
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {cropAdjustTarget?.stickerIndex === idx && processedGridImages[cropAdjustTarget.gridIndex] && (
+                      <div style={{ marginTop: '8px', border: '2px solid #4CAF50', borderRadius: '8px', padding: '8px', background: '#f9f9f9' }}>
+                        <CropAdjustPanel
+                          gridSrc={processedGridImages[cropAdjustTarget.gridIndex]}
+                          cellRow={cropAdjustTarget.cellRow}
+                          cellCol={cropAdjustTarget.cellCol}
+                          cellW={stickerSpec.generateCell.w}
+                          cellH={stickerSpec.generateCell.h}
+                          initialOffset={cropAdjustTarget.prevOffset ? { x: cropAdjustTarget.prevOffset.x, y: cropAdjustTarget.prevOffset.y } : undefined}
+                          initialZoom={cropAdjustTarget.prevOffset?.zoom}
+                          onConfirm={(ox, oy, z) => handleCropAdjustConfirm(ox, oy, z)}
+                          onCancel={() => setCropAdjustTarget(null)}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

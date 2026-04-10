@@ -339,6 +339,51 @@ export async function splitGrid8(gridImageDataUrl, cellWidth = 370, cellHeight =
 }
 
 /**
+ * 從 8 宮格圖片裁切單一格，支援自訂偏移量
+ * @param {string} gridImageDataUrl - 8 宮格圖片 Data URL
+ * @param {number} cellRow - 第幾行（0-3）
+ * @param {number} cellCol - 第幾列（0-1）
+ * @param {number} cellWidth - 來源格子寬
+ * @param {number} cellHeight - 來源格子高
+ * @param {number} outputWidth - 輸出寬
+ * @param {number} outputHeight - 輸出高
+ * @param {number} offsetX - X 偏移（像素）
+ * @param {number} offsetY - Y 偏移（像素）
+ * @returns {Promise<string>} 裁切後的圖片 Data URL
+ */
+export async function cropSingleCell(gridImageDataUrl, cellRow, cellCol, cellWidth, cellHeight, outputWidth, outputHeight, offsetX = 0, offsetY = 0, zoom = 1) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const expectedW = cellWidth * 2
+      const expectedH = cellHeight * 4
+      const scaleX = img.width / expectedW
+      const scaleY = img.height / expectedH
+      const baseCellW = cellWidth * scaleX
+      const baseCellH = cellHeight * scaleY
+      // zoom: 裁切區域大小 = baseCellW * zoom
+      const cropW = baseCellW * zoom
+      const cropH = baseCellH * zoom
+      // 中心點
+      const centerX = cellCol * baseCellW + baseCellW / 2 + offsetX * scaleX
+      const centerY = cellRow * baseCellH + baseCellH / 2 + offsetY * scaleY
+      const srcX = centerX - cropW / 2
+      const srcY = centerY - cropH / 2
+
+      const canvas = document.createElement('canvas')
+      canvas.width = outputWidth
+      canvas.height = outputHeight
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, srcX, srcY, cropW, cropH, 0, 0, outputWidth, outputHeight)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = reject
+    img.src = gridImageDataUrl
+  })
+}
+
+/**
  * 使用 remove.bg API 進行去背（需要 API Key）
  * 注意：這是示例，實際使用需要替換為真實的 API
  * 或者使用其他去背服務
@@ -403,25 +448,47 @@ export async function removeBackgroundSimple(imageDataUrl, threshold = 240, mask
       const width = canvas.width
       const height = canvas.height
 
-      // 先進行顏色閾值去背（無論是否有遮罩）
-      // 創建一個標記陣列，標記哪些像素應該被移除
+      // 自動偵測背景色：取四個角落像素的平均色
+      const corners = [
+        0, // top-left
+        (width - 1) * 4, // top-right
+        ((height - 1) * width) * 4, // bottom-left
+        ((height - 1) * width + (width - 1)) * 4 // bottom-right
+      ]
+      let bgR = 0, bgG = 0, bgB = 0
+      for (const ci of corners) {
+        bgR += data[ci]; bgG += data[ci + 1]; bgB += data[ci + 2]
+      }
+      bgR = Math.round(bgR / 4); bgG = Math.round(bgG / 4); bgB = Math.round(bgB / 4)
+      const bgAvg = (bgR + bgG + bgB) / 3
+
+      // 判斷背景類型：亮色（白色系）用亮度閾值，彩色（綠幕等）用色差閾值
+      const isChromaKey = bgAvg < 200 // 非白色背景 → 用色差模式
+      const colorDistThreshold = threshold < 200 ? threshold : 80 // 色差容忍度
+
+      const isBackground = (r, g, b) => {
+        if (isChromaKey) {
+          // 色差模式：與偵測到的背景色比較歐式距離
+          const dist = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2)
+          return dist < colorDistThreshold
+        } else {
+          // 亮度模式（原始白色去背邏輯）
+          return (r + g + b) / 3 > threshold
+        }
+      }
+
+      // 創建標記陣列
       const toRemove = new Uint8Array(width * height)
       const visited = new Uint8Array(width * height)
-      
-      // 從邊緣開始檢測白色背景
+
+      // 從邊緣開始檢測背景
       const queue = []
-      
-      // 將邊緣的白色像素加入隊列
+
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
           if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
             const idx = (y * width + x) * 4
-            const r = data[idx]
-            const g = data[idx + 1]
-            const b = data[idx + 2]
-            const avg = (r + g + b) / 3
-            
-            if (avg > threshold) {
+            if (isBackground(data[idx], data[idx + 1], data[idx + 2])) {
               queue.push({ x, y })
               toRemove[y * width + x] = 1
               visited[y * width + x] = 1
@@ -429,36 +496,30 @@ export async function removeBackgroundSimple(imageDataUrl, threshold = 240, mask
           }
         }
       }
-      
-      // 從邊緣開始擴散，移除連通的白色區域
+
+      // 從邊緣開始擴散，移除連通的背景區域
       while (queue.length > 0) {
         const { x, y } = queue.shift()
-        
-        // 檢查四個方向的鄰居
+
         const directions = [
           { dx: -1, dy: 0 },
           { dx: 1, dy: 0 },
           { dx: 0, dy: -1 },
           { dx: 0, dy: 1 }
         ]
-        
+
         for (const { dx, dy } of directions) {
           const nx = x + dx
           const ny = y + dy
-          
+
           if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
             const idx = ny * width + nx
-            
+
             if (!visited[idx]) {
               visited[idx] = 1
-              
+
               const pixelIdx = (ny * width + nx) * 4
-              const r = data[pixelIdx]
-              const g = data[pixelIdx + 1]
-              const b = data[pixelIdx + 2]
-              const avg = (r + g + b) / 3
-              
-              if (avg > threshold) {
+              if (isBackground(data[pixelIdx], data[pixelIdx + 1], data[pixelIdx + 2])) {
                 toRemove[idx] = 1
                 queue.push({ x: nx, y: ny })
               }

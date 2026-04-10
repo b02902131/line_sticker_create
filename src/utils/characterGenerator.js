@@ -723,12 +723,12 @@ export async function generateGrid8Image(
     return `位置 ${row}-${col} (第${index + 1}個): ${sticker.description}${textPart}`
   }).join('\n')
 
-  const prompt = `Create a single image containing 8 LINE stickers arranged in a 2-column by 4-row layout on a CLEAN WHITE CANVAS.
+  const prompt = `Create a single image containing 8 LINE stickers arranged in a 2-column by 4-row layout on a SOLID BRIGHT GREEN (#00FF00) CANVAS.
 
 🚫🚫🚫 CRITICAL INSTRUCTION - INVISIBLE BOUNDARIES 🚫🚫🚫
 **DO NOT DRAW ANY GRID LINES, BORDERS, OR FRAMES.**
-The 8 stickers must float on a single, continuous white background.
-Imagine 8 stickers placed on a white sheet of paper. NO lines between them.
+The 8 stickers must float on a single, continuous bright green (#00FF00) background.
+Imagine 8 stickers placed on a bright green sheet of paper. NO lines between them.
 
 Character Reference: **STRICTLY FOLLOW the provided character image.** The stickers MUST look exactly like the same character in different poses. Maintain the same facial features, clothing, colors, and proportions.
 ${STRICT_CONSISTENCY_RULES}
@@ -738,10 +738,14 @@ A previous grid image is provided as a second reference image. You MUST match it
 - The exact same art style, line thickness, and coloring technique
 - The same text box style, font style, and text placement approach
 - The same level of detail, shading, and proportions
-- The same background treatment within each sticker cell
 This new grid must look like it belongs to the SAME sticker pack as the previous grid.
 ` : ''}
-Background Requirement: **High contrast solid white background** in each area to facilitate automatic background removal.
+🎨 BACKGROUND COLOR - CRITICAL FOR REMOVAL 🎨
+**The ENTIRE background MUST be solid bright green (#00FF00, pure green).**
+- This is a chroma-key green screen background for automatic background removal.
+- DO NOT use white, light gray, or any color that might appear in the sticker artwork.
+- Every pixel that is NOT part of a sticker character/text MUST be exactly #00FF00.
+- The sticker artwork itself must NOT contain bright green (#00FF00). Avoid using this exact green in character designs, text boxes, or any sticker element.
 ${IMAGE_VISIBILITY_RULES}
 Target Aspect Ratio: ${aspectLabel}
 ${hasAnyText ? `Text Style Guidelines: ${safeTextStyle}` : `⚠️ NO TEXT: These stickers are image-only. Do NOT include any text, words, letters, or text boxes in the stickers.`}
@@ -756,7 +760,7 @@ Virtual Cell Size: ${cellW}px × ${cellH}px (for positioning only - DO NOT DRAW 
 - ❌ NO horizontal dividers at ${dividerYs}.
 - ❌ NO frames around the stickers.
 - ❌ NO "window pane" effects.
-- ❌ The background must be pure, uninterrupted white pixels between the character graphics.
+- ❌ The background must be pure, uninterrupted bright green (#00FF00) between the character graphics.
 
 **Layout Guide (Mental Model only - DO NOT DRAW):**
 - Column 1: Left half (x=0-${cellW - 1})
@@ -769,15 +773,16 @@ Virtual Cell Size: ${cellW}px × ${cellH}px (for positioning only - DO NOT DRAW 
 ${stickersDescription}
 
 MANDATORY REQUIREMENTS:
-1. **Content Boundary**: Keep all graphics well within the virtual cell boundaries (${cellW}x${cellH}) to avoid cropping.
-2. **Seamless Background**: The white background must flow continuously across the entire ${gridW}x${gridH} image.
-3. **No Separators**: If you feel the urge to draw a line to separate stickers, STOP. Leave it empty white space.
+1. **Content Boundary**: Each sticker MUST be fully contained and CENTERED within its virtual cell (${cellW}x${cellH}). Leave at least 10% padding on all sides. NO part of any sticker may cross into adjacent cells. If a character or text is near the cell edge, shrink it.
+2. **Seamless Background**: The bright green (#00FF00) background must flow continuously across the entire ${gridW}x${gridH} image.
+3. **No Separators**: If you feel the urge to draw a line to separate stickers, STOP. Leave it as green background.
 
 VERIFICATION CHECKLIST:
 ✓ Image size ${gridW}x${gridH}
 ✓ 8 distinct stickers
 ✓ **ZERO VISIBLE DIVIDING LINES**
-✓ **Continuous white background**
+✓ **Continuous bright green (#00FF00) background**
+✓ **NO bright green in sticker artwork itself**
 ✓ Characters centered in their virtual cells
 
 FINAL INSTRUCTION - READ CAREFULLY:
@@ -1042,7 +1047,8 @@ export async function generateStickerWithText(
   text,
   textStyleDescription = '',
   width = 370,
-  height = 320
+  height = 320,
+  referenceStickers = []
 ) {
   // 確保 textStyleDescription 不是 undefined 或空
   const safeTextStyle = textStyleDescription && textStyleDescription.trim() 
@@ -1074,12 +1080,16 @@ The text "${text}" must have a CLEAR and VISIBLE text box/background:
   const cleanText = text?.trim() || ''
   const hasText = cleanText.length > 0
 
+  const styleRefNote = referenceStickers.length > 0
+    ? `\n🎨 STYLE REFERENCE: ${referenceStickers.length} existing stickers from the same pack are provided as additional reference images. You MUST match their exact art style, line thickness, coloring technique, text box style, and overall aesthetic. The new sticker must look like it belongs to the same set.\n`
+    : ''
+
   const prompt = hasText
     ? `Create a cute and friendly LINE sticker style illustration.
 
 Character Reference: Use the provided character image as reference for style and appearance.
 ${STRICT_CONSISTENCY_RULES}
-Scene Description: ${cleanDescription}
+${styleRefNote}Scene Description: ${cleanDescription}
 Text Content: "${cleanText}"
 Text Style Guidelines: ${safeTextStyle}
 
@@ -1109,7 +1119,7 @@ Final Verification:
 
 Character Reference: Use the provided character image as reference for style and appearance.
 ${STRICT_CONSISTENCY_RULES}
-Scene Description: ${cleanDescription}
+${styleRefNote}Scene Description: ${cleanDescription}
 
 ⚠️ NO TEXT: This sticker is image-only. Do NOT include any text, words, letters, or text boxes.
 
@@ -1153,20 +1163,27 @@ ${IMAGE_VISIBILITY_RULES}
       throw new Error('base64 數據長度不足，可能不是有效的圖片數據')
     }
 
+
+    // 準備參考貼圖（用於風格一致性）
+    const refParts = []
+    for (const refImg of referenceStickers.slice(0, 10)) {
+      if (!refImg) continue
+      try {
+        const refBase64 = refImg.includes(',') ? refImg.split(',')[1] : refImg
+        if (refBase64 && refBase64.length > 100) {
+          refParts.push({ inlineData: { mimeType: 'image/png', data: refBase64.trim().replace(/\s/g, '') } })
+        }
+      } catch (e) { /* skip */ }
+    }
+
     // 構建請求體
-    // 注意：根據最初可用的版本，應該包含 maxOutputTokens
+
     const requestBody = {
       contents: [{
         parts: [
-          {
-            text: prompt
-          },
-          {
-            inlineData: {
-              mimeType: 'image/png',
-              data: base64Data
-            }
-          }
+          { text: prompt },
+          { inlineData: { mimeType: 'image/png', data: base64Data } },
+          ...refParts
         ]
       }],
       generationConfig: {
