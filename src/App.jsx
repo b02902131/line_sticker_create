@@ -232,6 +232,7 @@ function App() {
   const [characterConfirmed, setCharacterConfirmed] = useState(!!restoredChar)
   const [generatingCharacter, setGeneratingCharacter] = useState(false)
   const [characterName, setCharacterName] = useState('')
+  const [editingCharacterId, setEditingCharacterId] = useState(null)
 
   // 貼圖生產
   const [count, setCount] = useState(draft.count || 8)
@@ -251,19 +252,27 @@ function App() {
     syncSaveCharacters(chars)
   }
 
-  // 儲存角色
+  // 儲存角色（新建或更新）
   const handleSaveCharacter = () => {
     if (!characterImage) { alert('請先生成或上傳角色圖片'); return }
     const name = characterName.trim() || theme.trim() || characterDescription.trim().slice(0, 20) || '未命名角色'
-    const newChar = {
-      id: crypto.randomUUID(),
-      name,
-      description: characterDescription,
-      theme,
-      imageDataUrl: characterImage,
-      createdAt: new Date().toISOString()
+    if (editingCharacterId) {
+      // 更新既有角色
+      saveCharacters(characters.map(c => c.id === editingCharacterId ? {
+        ...c, name, description: characterDescription, theme, imageDataUrl: characterImage
+      } : c))
+    } else {
+      // 新建角色
+      const newChar = {
+        id: crypto.randomUUID(),
+        name,
+        description: characterDescription,
+        theme,
+        imageDataUrl: characterImage,
+        createdAt: new Date().toISOString()
+      }
+      saveCharacters([newChar, ...characters])
     }
-    saveCharacters([newChar, ...characters])
     // 重置表單
     setCharacterDescription('')
     setTheme('')
@@ -272,7 +281,23 @@ function App() {
     setCharacterImageHistory([])
     setCharacterConfirmed(false)
     setCharacterName('')
+    setEditingCharacterId(null)
     setPage('home')
+  }
+
+  // 編輯角色
+  const handleEditCharacter = (id) => {
+    const char = characters.find(c => c.id === id)
+    if (!char) return
+    setEditingCharacterId(id)
+    setCharacterName(char.name)
+    setCharacterDescription(char.description || '')
+    setTheme(char.theme || '')
+    setCharacterImage(char.imageDataUrl || null)
+    setUploadedCharacterImages([])
+    setCharacterImageHistory([])
+    setCharacterConfirmed(false)
+    setPage('character-create')
   }
 
   // 刪除角色
@@ -325,7 +350,9 @@ function App() {
         if (saved.backgroundThreshold) setBackgroundThreshold(saved.backgroundThreshold)
         if (saved.previewBgColor) setPreviewBgColor(saved.previewBgColor)
         // 根據已有數據跳到對應步驟
-        if (saved.cutImages?.length > 0 && saved.mainImage && saved.tabImage) {
+        const mainReady = stickerSpec.hasMain ? !!saved.mainImage : true
+        const tabReady = stickerSpec.hasTab ? !!saved.tabImage : true
+        if (saved.cutImages?.length > 0 && mainReady && tabReady) {
           setCurrentStep(9)
         } else if (saved.cutImages?.length > 0) {
           setCurrentStep(8)
@@ -1477,6 +1504,12 @@ function App() {
                         </button>
                         <button
                           className="btn btn-secondary btn-inline"
+                          onClick={() => handleEditCharacter(char.id)}
+                        >
+                          編輯
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-inline"
                           onClick={() => handleDeleteCharacter(char.id)}
                           style={{ color: '#e74c3c' }}
                         >
@@ -1495,8 +1528,8 @@ function App() {
         {page === 'character-create' && (
           <>
             <div className="step-section">
-              <h2>角色設計</h2>
-              <button className="btn btn-secondary btn-inline" onClick={() => setPage('home')} style={{ marginBottom: '15px' }}>
+              <h2>{editingCharacterId ? '編輯角色' : '角色設計'}</h2>
+              <button className="btn btn-secondary btn-inline" onClick={() => { setEditingCharacterId(null); setPage('home') }} style={{ marginBottom: '15px' }}>
                 ← 返回首頁
               </button>
               <div className="form-group">
@@ -1593,8 +1626,25 @@ function App() {
                 </div>
               )}
 
+              {/* 編輯模式：顯示現有角色圖，可直接儲存或重新生成 */}
+              {editingCharacterId && characterImage && uploadedCharacterImages.length === 0 && (
+                <div className="character-preview">
+                  <img src={characterImage} alt="現有角色" className="preview-image character-image" />
+                  <div className="character-actions">
+                    <button className="btn btn-success" onClick={handleSaveCharacter}>
+                      儲存變更
+                    </button>
+                    <button className="btn btn-primary" onClick={handleGenerateCharacter}
+                      disabled={generatingCharacter || !apiKey || (!characterDescription.trim() && !theme.trim())}
+                    >
+                      {generatingCharacter ? '生成中...' : '重新生成角色圖'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* 無上傳 或 多張上傳：需要 AI 生成 */}
-              {(uploadedCharacterImages.length === 0 || uploadedCharacterImages.length > 1) && (
+              {!editingCharacterId && (uploadedCharacterImages.length === 0 || uploadedCharacterImages.length > 1) && (
                 <>
                   <button
                     className="btn btn-primary"
