@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 
-const DATA_DIR = path.resolve('data')
+const DATA_DIR = path.resolve('local/data')
 const CHARACTERS_FILE = path.join(DATA_DIR, 'characters.json')
 const DESCS_DIR = path.join(DATA_DIR, 'descriptions')
 const IMAGES_DIR = path.join(DATA_DIR, 'images')

@@ -127,7 +127,3 @@ local/
 
 # Sticker build outputs
 build/
-
-# Local character data (synced from browser)
-data/
-!data/images/
