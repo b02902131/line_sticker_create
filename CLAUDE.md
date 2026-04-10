@@ -8,29 +8,28 @@ LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→
 ### Branch: `feat/four-sticker-features`
 
 ### What was done
-- 修正表情貼重新編輯時下載按鈕消失（步驟恢復判斷改用 `stickerSpec.hasMain`）
-- 新增角色編輯功能 + 草稿儲存（無圖也能存）
-- 角色資料從 `data/` 搬到 `local/data/`，圖片用 git LFS
-- **完全移除 localStorage 依賴**，改為檔案 API 直接讀寫（解決 5MB quota 問題）
-- 角色預覽 UI 整合為單一流程（解決編輯模式上傳圖片存不到的 bug）
-- 新增 0410-可愛動物村狗勾圖鑑 listing（40 張）
-- `/wrap-up` skill 新增 `--recursive` 參數
+- 8 宮格改用亮綠 (#00FF00) chroma-key 背景，取代白色背景去背
+- 新增 `CropAdjustPanel` 元件：方向鍵/拖拉微調裁切位置 + 縮放控制
+- `cropSingleCell()` 支援偏移量與 zoom 參數
+- `removeBackgroundSimple()` 新增色差模式（歐式距離比對背景色）
+- cell boundary prompt 強化：居中、10% padding、不跨格
+- 角色 CRUD、localStorage 移除、角色預覽 UI 整合（前次 session）
 
 ### Current state
 - 表情貼 + 一般貼圖端到端流程正常
-- 角色 CRUD 完整，資料透過 `local/data/` 持久化（無 localStorage）
+- 去背流程：綠幕 chroma-key → 色差模式自動去背，品質大幅提升
+- 裁切支援手動微調（偏移 + 縮放），解決 AI 構圖偏移問題
 - `local/` 是獨立 private repo（`stampmill-local`），外層 public repo 排除
-- 狗勾圖鑑已開始生成（5 張 grid 已產出）
 
 ### What's next
 - 0410-可愛動物村狗勾圖鑑：繼續生成 + 去背 + 送審
 - 0406-眼淚製造機（一般貼圖版）尚未送審
-- TODO：稀有背景色 prompt、未填敘述樣式提示、單張參考圖示意姿勢
+- TODO：未填敘述樣式提示、單張參考圖示意姿勢、tab/main 反覆去背 bug
 
 ### Key context for next session
+- **綠幕去背**：`characterGenerator.js` 的 grid prompt 用 `#00FF00` 背景，`removeBackgroundSimple()` 用 `isChromaKey` + `colorDistThreshold` 參數
+- **裁切微調**：`CropAdjustPanel` 在 `App.jsx`，`cropSingleCell()` 在 `imageUtils.js`，支援 offset + zoom
 - **不再用 localStorage**，`localSync.js` 全部走 `/api/characters` 等檔案 API
 - dev server 需要 Node.js 20.19+（`nvm use 20.19.0`），Vite 7 需要
 - `local/` 是獨立 git repo，`vite-plugin-local-save.js` 的 `DATA_DIR = path.resolve('local/data')`
-- 角色編輯用 `editingCharacterId` state，角色預覽區是統一的單一 UI 流程
 - 表情貼 `stickerSpec.hasMain = false`，步驟恢復和下載按鈕條件都要用 spec 判斷
-- `useState([])` 初始為空，角色靠 `useEffect` → `syncLoadCharacters` 非同步載入
