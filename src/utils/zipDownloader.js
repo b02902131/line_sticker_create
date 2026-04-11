@@ -19,6 +19,35 @@ function dataURLtoBlob(dataUrl) {
 }
 
 /**
+ * 檢查圖片尺寸，不符時以 contain 方式等比縮放到目標尺寸內（不裁切），透明填充
+ */
+function fitToSize(dataUrl, targetW, targetH) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      if (img.width === targetW && img.height === targetH) {
+        resolve(dataUrl)
+        return
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = targetW
+      canvas.height = targetH
+      const ctx = canvas.getContext('2d')
+      // contain: 等比縮放到完全放入目標尺寸，居中，背景透明
+      const scale = Math.min(targetW / img.width, targetH / img.height)
+      const drawW = img.width * scale
+      const drawH = img.height * scale
+      const dx = (targetW - drawW) / 2
+      const dy = (targetH - drawH) / 2
+      ctx.drawImage(img, 0, 0, img.width, img.height, dx, dy, drawW, drawH)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = () => resolve(dataUrl)
+    img.src = dataUrl
+  })
+}
+
+/**
  * 打包並下載所有圖片為 ZIP 檔案
  * @param {Array} images - 貼圖圖片陣列 [{index, description, dataUrl}, ...]
  * @param {string} mainImage - 主要圖片 Data URL
@@ -62,13 +91,19 @@ export async function downloadAsZip(images, mainImage, tabImage, theme, characte
       }
     }
 
-    // 添加貼圖圖片
-    images.forEach((img) => {
-      const blob = dataURLtoBlob(img.dataUrl)
+    // 添加貼圖圖片（尺寸不對時以中心裁切到目標尺寸）
+    const targetW = spec?.cell?.w
+    const targetH = spec?.cell?.h
+    for (const img of images) {
+      let dataUrl = img.dataUrl
+      if (targetW && targetH) {
+        dataUrl = await fitToSize(dataUrl, targetW, targetH)
+      }
+      const blob = dataURLtoBlob(dataUrl)
       const index = img.index || 1
       const filename = `${String(index).padStart(padLen, '0')}.png`
       folder.file(filename, blob)
-    })
+    }
 
     // 生成 ZIP 檔案
     const zipBlob = await zip.generateAsync({ type: 'blob' })
