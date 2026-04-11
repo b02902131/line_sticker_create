@@ -13,6 +13,14 @@
 
 > 原版線上頁面：[scorpioliu0953.github.io/line_sticker_create/](https://scorpioliu0953.github.io/line_sticker_create/)
 
+## 📸 介面預覽
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="StampMill 介面示意圖" width="320" />
+</p>
+
+由上而下依序為：角色設定、文字風格、貼圖文字描述清單、八宮格批次預覽、單張貼圖預覽 grid。一頁全流程，不需要切頁面。
+
 ## 🆕 這個 fork 新增的功能
 
 ### 角色與貼圖管理
