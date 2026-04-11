@@ -1671,16 +1671,33 @@ function App() {
         .slice(0, maxRef)
         .map(c => c.img)
 
-      const newStickerDataUrl = await generateStickerWithText(
+      // 用 generateCell 尺寸生成（表情貼有 2× 超採樣），再縮回 cell 尺寸
+      const genW = stickerSpec.generateCell.w
+      const genH = stickerSpec.generateCell.h
+      const outW = stickerSpec.cell.w
+      const outH = stickerSpec.cell.h
+
+      let newStickerDataUrl = await generateStickerWithText(
         apiKey,
         characterImage,
         desc.description,
         desc.text,
         textStyle || '',
-        stickerSpec.cell.w,
-        stickerSpec.cell.h,
+        genW,
+        genH,
         refStickers
       )
+
+      // 如果 generateCell 跟 cell 尺寸不同（表情貼超採樣），縮放到最終尺寸
+      if (genW !== outW || genH !== outH) {
+        const img = new Image()
+        img.src = newStickerDataUrl
+        await new Promise(r => { img.onload = r })
+        const canvas = document.createElement('canvas')
+        canvas.width = outW; canvas.height = outH
+        canvas.getContext('2d').drawImage(img, 0, 0, outW, outH)
+        newStickerDataUrl = canvas.toDataURL('image/png')
+      }
 
       const processedSticker = await removeBackgroundSimple(newStickerDataUrl, backgroundThreshold, null)
 
@@ -2700,7 +2717,10 @@ function App() {
               <div className="sticker-grid">
                 {cutImages.map((img, idx) => (
                   <div key={idx} className="sticker-item">
-                    <img src={img} alt={`貼圖 ${idx + 1}`} className="preview-image sticker-image" style={{ background: previewBgColor }} />
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                      <img src={img} alt={`貼圖 ${idx + 1}`} className="preview-image sticker-image" style={{ background: previewBgColor }} />
+                      <span style={{ position: 'absolute', top: '2px', left: '2px', background: 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: '4px', padding: '1px 5px', fontSize: '11px', fontWeight: 'bold' }}>{idx + 1}</span>
+                    </div>
                     <div className="sticker-info" style={{ fontSize: '0.85em' }}>
                       <input
                         type="text"
