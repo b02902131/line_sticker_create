@@ -1,160 +1,103 @@
-# LINE 貼圖製作工具
+# StampMill — LINE 貼圖製作工具（fork 強化版）
 
-一個使用 React 開發的 LINE 貼圖自動生成工具，整合 Gemini API 進行智能圖片生成和處理。
+> **Forked from [scorpioliu0953/line_sticker_create](https://github.com/scorpioliu0953/line_sticker_create)**
+> 原始作者的 README、示範影片與基礎介紹保留在上游 repo，這份 README 只列我這個 fork 新增 / 改動的部分。
+>
+> 感謝原作者提供完整的基礎工具，讓我能在這之上做客製化擴充。
 
-## 🌐 使用頁面
+## 🌐 線上版本（這個 fork）
 
-**線上版本**：https://scorpioliu0953.github.io/line_sticker_create/
+**[https://b02902131.github.io/line_sticker_create/](https://b02902131.github.io/line_sticker_create/)**
 
-直接在瀏覽器中使用，無需安裝任何軟體。
+直接在瀏覽器使用，無需安裝。手機 Safari / Chrome 也可開。
 
-## 📺 教學影片
+> 原版線上頁面：[scorpioliu0953.github.io/line_sticker_create/](https://scorpioliu0953.github.io/line_sticker_create/)
 
-[![LINE 貼圖製作教學](https://img.youtube.com/vi/nxlflN0bw8s/0.jpg)](https://www.youtube.com/watch?v=nxlflN0bw8s)
+## 🆕 這個 fork 新增的功能
 
-點擊上方圖片觀看教學影片，或直接前往：[YouTube 影片連結](https://youtu.be/nxlflN0bw8s)
+### 角色與貼圖管理
+- **角色設計兩階段流程拆分**：階段 A 設計角色 → 階段 B 生產貼圖（先存角色再批量產，可重複使用）
+- **角色草稿存檔**：還沒生成圖片就可以先存草稿
+- **角色編輯**：名稱、描述、主題、角色圖都可以後續修改
+- **角色刪除**：連同 IndexedDB 圖片一起清乾淨
+- **🆕 角色匯出**：把單一角色（含 meta + descriptions + 八宮格 / 主圖 / 標籤圖等所有圖片）打包成 JSON 檔下載
+- **🆕 角色匯入**：從 JSON 檔上傳還原角色，方便跨裝置（電腦 ↔ 手機）同步
 
-## 功能特色
+### 持久化
+- **🆕 localStorage fallback**：production 部署版本也會把角色 / 描述 / API key 存在瀏覽器 localStorage，refresh 不會消失
+- **IndexedDB 圖片儲存**：八宮格、單張貼圖、主圖、標籤圖都存在 IndexedDB，避免 localStorage 配額爆掉
+- **本地檔案同步**（dev mode 限定）：開發時所有資料同步寫到 `local/data/`，方便用 Git LFS 備份角色與圖片
 
-- 🔑 **API Key 管理**：安全輸入 Gemini API Key
-- 📊 **靈活選擇**：支援 8、16、24、32、40 張貼圖生成
-- 🎨 **角色生成**：根據主題生成角色，或上傳自己的角色圖片
-- ✏️ **文字描述生成**：AI 自動生成每張貼圖的描述和文字，可手動編輯
-- 🖼️ **8宮格生成**：自動生成 2×4 布局的 8 宮格圖片
-- 🎭 **自動去背**：使用智能算法自動去除背景
-- ✂️ **自動裁切**：將 8 宮格自動裁切為單張貼圖
-- 👀 **即時預覽**：每個步驟都可預覽結果
-- 📦 **一鍵下載**：打包成 ZIP 檔案，一鍵下載全部圖檔
+### 貼圖生成強化
+- **支援表情貼尺寸**：除了一般貼圖，也支援表情貼（不同 8 宮格 + 單圖規格）
+- **單張貼圖重產**：不用整批重來，可以針對某一張不滿意的單獨重生
+- **八宮格單張重產**：八宮格內任一格也可單獨重產，保留其他格不變
+- **八宮格風格參考**：產第二張八宮格時自動參考第一張，維持風格一致（類似 RNN 概念）
+- **文字批次匯入**：貼上文字清單會自動分配到 N 張貼圖，跳過已有的、追加新的
+- **文字匯出**：匯出格式直接支援再次匯入
+- **重複文字偵測**：產圖前自動檢查避免重複，與排除清單整合
+- **AI 補齊空描述**：批次補齊時跳過已填入的，per-item 進度顯示
+- **貼圖順序拖拉編輯**
 
-## 使用流程
+### 圖片處理
+- **強化去背演算法**：色差偵測 + 邊緣擴散，比單純白色閾值準確
+- **稀有背景色**：八宮格自動用 `#00FF00` 亮綠當背景，從源頭降低去背難度
+- **去背格線去除**：八宮格內的格線額外做清理 pass，避免殘影
+- **主圖 / 標籤圖去背**：除了八宮格，主圖跟標籤圖也支援去背 + 反覆嘗試
+- **標籤圖從圖片選擇**：可以從主圖、八宮格、角色圖任一張裁切出來當標籤圖
+- **Crop 十字輔助線**：裁切框中央有白色虛線十字，方便置中對齊
+- **綠幕去背 + 裁切微調面板**：單獨的編輯面板可以後製去背參數
 
-1. **填入 Gemini API Key**
-2. **選擇創作張數**（8、16、24、32 或 40 張）
-3. **填入主題描述或上傳角色圖片**
-4. **生成角色**（白色背景，用於確認角色是否符合要求）
-5. **生成文字描述**（AI 自動生成，可手動編輯）
-6. **生成 8 宮格貼圖**（自動生成、去背、裁切）
-7. **預覽結果**
-8. **打包下載**
+### Prompt 強化
+- **角色一致性強化**：每次圖片生成都明確要求保持角色外觀一致（髮色、特徵）
+- **可選的 character stance 輸入**：產文字描述時可以指定角色姿勢方向
+- **PROHIBITED_CONTENT 處理**：偵測 Gemini 阻擋並給友善錯誤訊息
+- **timeout / retry 強化**：八宮格生成 timeout 拉到 150s，overloaded error 用 exponential backoff 重試 5 次
+- **文字描述 retry 機制**：API overload 自動重試
+- **excluded texts 功能**：擴充系列貼圖時排除已用過的文字
 
-## 技術棧
+### UI / UX
+- **重做流程銜接**：產圖過程中可隨時回到先前階段繼續
+- **流程恢復**：關掉重開能接回最後狀態
+- **暗背景預覽**：避免透明棋盤背景干擾觀感
+- **下載 zip 檔名用角色名命名**
 
-- **React 18** - 前端框架
-- **Vite** - 構建工具
-- **Google Gemini API** - AI 圖片生成和文字生成
-  - **gemini-3-pro-preview** - 用於生成文字描述
-  - **gemini-3-pro-image-preview** (Nano Banana Pro) - 用於生成實際圖片
-- **Canvas API** - 圖片處理（8宮格組合、裁切、去背）
-- **JSZip** - ZIP 檔案打包
+## 🛠️ 技術棧
 
-## 安裝與使用
+跟原版一樣（React 18 + Vite + Gemini API + Canvas API + JSZip），加上：
+- **IndexedDB**：圖片儲存（避開 localStorage 5MB 配額）
+- **localStorage**：production 持久化 fallback
+- **gh-pages**：自動部署到 GitHub Pages
 
-### 1. 安裝依賴
+## 📁 多出來的檔案 / 結構
+
+```
+src/utils/
+├── imageStore.js          # 🆕 IndexedDB 圖片儲存 + 本地檔案同步
+├── localSync.js           # 🆕 localStorage / 本地 API server 雙模式同步
+└── stickerSpecs.js        # 🆕 不同貼圖類型（一般 / 表情貼）規格定義
+
+vite-plugin-local-save.js  # 🆕 dev mode 用的本地檔案同步 API server
+
+local/                     # 🆕 dev mode 資料目錄（gitignore，nested git repo）
+├── data/                  # 角色、描述、圖片
+├── finances/              # 成本追蹤
+├── plan.md
+├── schedule.md
+└── TODOs.md
+```
+
+## 📦 部署
 
 ```bash
 npm install
+npm run deploy   # 自動 build + push to gh-pages branch
 ```
 
-### 2. 啟動開發伺服器
+## 📝 授權
 
-```bash
-npm run dev
-```
+MIT License（沿用原作者授權）
 
-### 3. 取得 Gemini API Key
+## 🙏 致謝
 
-1. 前往 [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. 登入您的 Google 帳號
-3. 創建新的 API Key
-4. 複製 API Key 備用
-
-### 4. 使用工具
-
-按照步驟提示操作：
-1. 輸入 Gemini API Key
-2. 選擇要生成的貼圖張數
-3. 輸入主題描述或上傳角色圖片
-4. 生成並確認角色
-5. 生成並編輯文字描述
-6. 生成 8 宮格貼圖
-7. 預覽並下載
-
-## 專案結構
-
-```
-├── src/
-│   ├── App.jsx                    # 主應用組件
-│   ├── App.css                    # 應用樣式
-│   ├── main.jsx                   # 應用入口
-│   ├── index.css                  # 全局樣式
-│   └── utils/
-│       ├── gemini.js                    # Gemini API 文字生成
-│       ├── characterGenerator.js        # 角色和貼圖生成
-│       ├── imageUtils.js                # 圖片處理工具（8宮格、去背、裁切）
-│       └── zipDownloader.js             # ZIP 打包下載工具
-├── index.html                     # HTML 模板
-├── package.json                   # 專案配置
-├── vite.config.js                 # Vite 配置
-└── README.md                      # 說明文件
-```
-
-## 功能說明
-
-### 8 宮格生成
-
-- 每張 8 宮格包含 2 列 × 4 行 = 8 格
-- 每格尺寸：370×320px（符合 LINE 貼圖規範）
-- 如果選擇的張數不是 8 的倍數，最後一張 8 宮格會用白色背景填充多餘的格子
-- 裁切時只會裁切實際生成的貼圖，不會包含填充的白色背景
-
-### 去背功能
-
-- 使用基於顏色閾值的簡單去背算法
-- 將接近白色的像素設為透明
-- 可調整閾值參數（預設 240）
-
-### 文字描述生成
-
-- AI 自動生成每張貼圖的描述和要添加的文字
-- 所有文字內容保證不重複
-- 生成後可手動編輯每個描述和文字
-
-## 注意事項
-
-### API 限制
-
-- **免費帳號**：可能有每日生成數量限制
-- **達到限制後**：可能降級為舊模型或無法使用
-- **建議**：使用付費帳號以獲得更好的體驗
-
-### 圖片生成
-
-- 使用 **Gemini 3 Pro Image Preview** 模型生成圖片
-- 生成的圖片為白色背景（非透明）
-- 使用內建去背功能將白色背景轉為透明
-
-### 角色一致性
-
-- 如果上傳角色圖片，後續生成的貼圖會以此為依據
-- 如果使用 AI 生成角色，建議先確認角色是否符合要求再繼續
-
-## 開發指令
-
-```bash
-# 開發模式
-npm run dev
-
-# 建置生產版本
-npm run build
-
-# 預覽生產版本
-npm run preview
-```
-
-## 授權
-
-MIT License
-
-## 貢獻
-
-歡迎提交 Issue 和 Pull Request！
+完整的基礎工具來自 [scorpioliu0953/line_sticker_create](https://github.com/scorpioliu0953/line_sticker_create)。這個 fork 保留原作者的所有功能，僅在其上做客製化擴充。
