@@ -443,6 +443,69 @@ function App() {
     deleteCharacterImages(id).catch(() => {})
   }
 
+  // 匯出角色（含 meta + descriptions + 圖片資料）為 JSON 檔
+  const handleExportCharacter = async (id) => {
+    const char = characters.find(c => c.id === id)
+    if (!char) return
+    try {
+      const descs = await syncLoadDescs(id)
+      const images = await loadCharacterImages(id).catch(() => null)
+      const exportData = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        character: char,
+        descriptions: descs || [],
+        images: images || null,
+      }
+      const json = JSON.stringify(exportData, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const safeName = (char.name || 'character').replace(/[/\\?%*:|"<>]/g, '_')
+      a.download = `stampmill-${safeName}-${id.slice(0, 8)}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('匯出失敗：' + err.message)
+    }
+  }
+
+  // 匯入角色（從 JSON 檔讀回來）
+  const handleImportCharacter = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const data = JSON.parse(event.target.result)
+        if (!data.version || !data.character) {
+          alert('檔案格式不正確：缺少 version 或 character 欄位')
+          return
+        }
+        const imported = data.character
+        // 給匯入的角色一個新 id 避免衝突
+        const newId = crypto.randomUUID()
+        const newChar = { ...imported, id: newId, importedAt: new Date().toISOString() }
+        saveCharacters([newChar, ...characters])
+        if (data.descriptions && data.descriptions.length > 0) {
+          await syncSaveDescs(newId, data.descriptions)
+        }
+        if (data.images) {
+          await saveCharacterImages(newId, data.images).catch(() => {})
+        }
+        alert(`已匯入角色：${newChar.name || '未命名'}`)
+      } catch (err) {
+        alert('匯入失敗：' + err.message)
+      }
+    }
+    reader.readAsText(file)
+    // reset input so same file can be re-imported
+    e.target.value = ''
+  }
+
   const saveCharDescs = (charId, descs) => {
     syncSaveDescs(charId, descs)
   }
@@ -1680,6 +1743,15 @@ function App() {
                 <button className="btn btn-primary btn-inline" onClick={() => setPage('character-create')}>
                   + 新增角色
                 </button>
+                <label className="btn btn-secondary btn-inline" style={{ marginLeft: '8px', cursor: 'pointer' }}>
+                  匯入角色
+                  <input
+                    type="file"
+                    accept="application/json"
+                    onChange={handleImportCharacter}
+                    style={{ display: 'none' }}
+                  />
+                </label>
               </div>
               {characters.length === 0 ? (
                 <p style={{ color: '#999', textAlign: 'center', padding: '30px' }}>還沒有角色，點擊「新增角色」開始</p>
@@ -1705,6 +1777,12 @@ function App() {
                           onClick={() => handleEditCharacter(char.id)}
                         >
                           編輯
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-inline"
+                          onClick={() => handleExportCharacter(char.id)}
+                        >
+                          匯出
                         </button>
                         <button
                           className="btn btn-secondary btn-inline"
