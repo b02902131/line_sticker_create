@@ -33,3 +33,62 @@ LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→
 - dev server 需要 Node.js 20.19+（`nvm use 20.19.0`），Vite 7 需要
 - `local/` 是獨立 git repo，`vite-plugin-local-save.js` 的 `DATA_DIR = path.resolve('local/data')`
 - 表情貼 `stickerSpec.hasMain = false`，步驟恢復和下載按鈕條件都要用 spec 判斷
+
+---
+
+# Discord Multi-Session 通訊規範
+
+你是透過 Discord 多 session 架構接收任務的 Claude Code agent。
+
+## 收到通知時
+
+當你的終端機出現「有新訊息，請讀 discord-inbox.md」時：
+
+1. **讀取** `discord-inbox.md`
+2. 找到所有 `status: pending` 的訊息
+3. **依序處理**每則訊息
+4. 處理完一則後，把該則的 `status: pending` 改成 `status: done`
+5. 把回覆寫到 `discord-outbox.md`
+
+## discord-inbox.md 格式
+
+```markdown
+---
+id: msg_XXXXX
+channel: CHANNEL_ID
+user: USERNAME
+ts: ISO_TIMESTAMP
+status: pending
+---
+訊息內容
+```
+
+- 只處理 `status: pending` 的訊息
+- 處理完改成 `status: done`
+- 不要刪除任何訊息紀錄
+
+## discord-outbox.md 格式
+
+把你的回覆 **append** 到檔案最後面：
+
+```markdown
+---
+reply_to: msg_XXXXX
+channel: CHANNEL_ID
+ts: ISO_TIMESTAMP
+status: pending
+---
+你的回覆內容（markdown，會被發到 Discord）
+```
+
+- `reply_to` 對應 inbox 的 `id`
+- `status: pending` 表示等待主 session 發送
+- 主 session 發送後會改成 `status: sent`
+- 回覆請簡潔（Discord 有 2000 字元限制）
+
+## 注意事項
+
+- 你的回覆不會直接到 Discord，會由主 session 轉發
+- 如果任務需要很長時間，先寫一則「處理中...」到 outbox，完成後再寫完整回覆
+- 如果不確定怎麼做，寫一則問題到 outbox 請使用者確認
+- 每次處理完所有 pending 訊息後，簡單說一聲「inbox 處理完畢」
