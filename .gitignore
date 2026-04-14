@@ -127,3 +127,10 @@ local/
 
 # Sticker build outputs
 build/
+
+# Discord 立川基地 runtime state (wrap-up 2026-04-14)
+.last-activity
+.waiting-reply
+discord-inbox.md
+discord-outbox.md
+
