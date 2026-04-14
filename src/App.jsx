@@ -1735,7 +1735,12 @@ function App() {
   return (
     <div className="app">
       <div className="container">
-        <h1 className="title" style={{ cursor: 'pointer' }} onClick={() => setPage('home')}>StampMill</h1>
+        <h1 className="title" style={{ cursor: 'pointer', display: 'flex', alignItems: 'baseline', gap: '8px' }} onClick={() => setPage('home')}>
+          StampMill
+          <span style={{ fontSize: '0.5em', color: '#888', fontWeight: 'normal' }}>
+            v{__APP_VERSION__} · {__GIT_HASH__} · {__BUILD_DATE__}
+          </span>
+        </h1>
 
         {/* API Key — 所有頁面共用 */}
         <div className="step-section">
