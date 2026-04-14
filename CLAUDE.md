@@ -3,6 +3,34 @@
 ## Project Overview
 LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。
 
+## Handoff — 2026-04-15
+
+### Branch: `main`
+
+### What was done (today)
+- 新增 `local/stickers/0415-醜馬第三彈/listing.md`，從 `local/NOTE.md` 搬入 9 個醜馬 idea（騎馬要多久、馬不停蹄、斑馬搬馬、馬卡龍、駟馬難追、天馬行空、天馬流星拳、騎驢找馬、指鹿為馬），全部列入貼圖文字清單
+- Discord 透過 nekoroni multi-session inbox/outbox 處理了 git log / local git log / push 狀態 / deploy URL / 醜馬第三彈搬運 等多則訊息
+
+### Current state
+- `local/stickers/0415-醜馬第三彈/listing.md` 已建好，狀態追蹤為「內容規劃 進行中」
+- `local/NOTE.md` 原始醜馬第三彈 section 未動（未標記已搬移）
+- `local/` working tree：有新增的 listing.md 尚未 commit；主 repo working tree 乾淨（僅 handoff 更新待處理）
+- Deploy URL：https://b02902131.github.io/line_sticker_create/
+
+### What's next
+- **醜馬第三彈 角色 asset 確認**：`local/data/characters.json` 看不到「醜馬」角色，需要確認前一/二彈的角色圖在哪、第三彈是否沿用同一隻醜馬造型
+- **第一/二彈 listing**：目前只有第三彈 listing，若要送審需補建前兩彈（或整併為一個 pack）
+- 若確定沿用前彈角色 → 可跑 `/line-sticker-text` 產 StampMill 匯入 JSON，直接接進 web app 生成貼圖
+- NOTE.md 的醜馬 section 是否標記「已搬到 0415-醜馬第三彈」也等使用者決定
+- 承接上次 handoff 未完成項：狗勾圖鑑繼續生成、0406-眼淚製造機送審、tab/main 反覆去背 bug
+
+### Key context for next session
+- 醜馬第三彈 listing 路徑：`local/stickers/0415-醜馬第三彈/listing.md`
+- 文字清單已 key 好 9 筆，情境說明直接用 NOTE.md 原文
+- （保留上次 2026-04-10 的 key context：綠幕去背、裁切微調、localStorage 移除、local/ 獨立 repo、表情貼 hasMain 判斷）
+
+---
+
 ## Handoff — 2026-04-10
 
 ### Branch: `feat/four-sticker-features`
