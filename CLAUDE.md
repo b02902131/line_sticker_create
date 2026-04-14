@@ -7,27 +7,32 @@ LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→
 
 ### Branch: `main`
 
-### What was done (today)
-- 新增 `local/stickers/0415-醜馬第三彈/listing.md`，從 `local/NOTE.md` 搬入 9 個醜馬 idea（騎馬要多久、馬不停蹄、斑馬搬馬、馬卡龍、駟馬難追、天馬行空、天馬流星拳、騎驢找馬、指鹿為馬），全部列入貼圖文字清單
-- Discord 透過 nekoroni multi-session inbox/outbox 處理了 git log / local git log / push 狀態 / deploy URL / 醜馬第三彈搬運 等多則訊息
+### What was done (本次 session)
+- 醜馬第三彈 listing 從 9 筆擴成 **16 筆**（phone 端 pull 補上 token/AI/賽博龐克梗 6 筆）
+- 新增 `.claude/skills/line-sticker-text/` skill：解析 listing.md 文字清單 → StampMill bulk import 格式 `文字：描述`（app `handleImportBulkText` 吃這個）
+- `.gitignore` 解禁 `.claude/skills/` 保留其他 `.claude/*` ignore
+- 頁面 header 顯示版號：vite define `__APP_VERSION__` / `__GIT_HASH__` / `__BUILD_DATE__`，h1 右側小灰字串
+- Deploy 到 gh-pages（從 04-12 之後累積 7+ commits 含 `fitToSize` 未上線，這次一併推上）
+- Synthesize 醜馬 characterStance：「賽博龐克風醜萌馬，AI 時代過勞但裝沒事，愛用成語諧音吐槽，身上電路發光但眼神死」
 
 ### Current state
-- `local/stickers/0415-醜馬第三彈/listing.md` 已建好，狀態追蹤為「內容規劃 進行中」
-- `local/NOTE.md` 原始醜馬第三彈 section 未動（未標記已搬移）
-- `local/` working tree：有新增的 listing.md 尚未 commit；主 repo working tree 乾淨（僅 handoff 更新待處理）
-- Deploy URL：https://b02902131.github.io/line_sticker_create/
+- `0415-醜馬第三彈/listing.md` 完成 16 筆 + 標題 EN/ZH/JP + 角色設計
+- `local/data/characters.json` 仍無「醜馬」角色，bulk import 需先在 app 建角色拿 charId
+- Deploy URL: https://b02902131.github.io/line_sticker_create/ 線上版 `68d9cc6`
+- `fitToSize` (zipDownloader.js:24) 下載時 contain 等比縮放已上線
+- Working tree 乾淨
 
 ### What's next
-- **醜馬第三彈 角色 asset 確認**：`local/data/characters.json` 看不到「醜馬」角色，需要確認前一/二彈的角色圖在哪、第三彈是否沿用同一隻醜馬造型
-- **第一/二彈 listing**：目前只有第三彈 listing，若要送審需補建前兩彈（或整併為一個 pack）
-- 若確定沿用前彈角色 → 可跑 `/line-sticker-text` 產 StampMill 匯入 JSON，直接接進 web app 生成貼圖
-- NOTE.md 的醜馬 section 是否標記「已搬到 0415-醜馬第三彈」也等使用者決定
-- 承接上次 handoff 未完成項：狗勾圖鑑繼續生成、0406-眼淚製造機送審、tab/main 反覆去背 bug
+- 醜馬：app 建角色 → bulk import 16 筆 → 生貼圖 → tab/main 製作 → ZIP → 送審
+- 第一/二彈 listing 補建（或整併為一包送審）
+- 優化單圖重產：文字 prompt / 圖文排版也要參考其他單圖一致風格（backlogs）
+- 承接：狗勾圖鑑繼續、0406-眼淚製造機送審、tab/main 反覆去背 bug
 
 ### Key context for next session
-- 醜馬第三彈 listing 路徑：`local/stickers/0415-醜馬第三彈/listing.md`
-- 文字清單已 key 好 9 筆，情境說明直接用 NOTE.md 原文
-- （保留上次 2026-04-10 的 key context：綠幕去背、裁切微調、localStorage 移除、local/ 獨立 repo、表情貼 hasMain 判斷）
+- bulk import 格式：`文字：描述`（冒號分隔，支援 `- [ ]` / 數字編號前綴，line 864 regex strip）
+- `/line-sticker-text` skill 在 `StampMill/.claude/skills/line-sticker-text/SKILL.md`（project scoped），新 session 自動載
+- 版號 define 在 `vite.config.js`，build 時 execSync `git rev-parse --short HEAD`
+- （沿用：綠幕去背、裁切微調、localStorage 移除、local/ 獨立 repo、表情貼 hasMain）
 
 ---
 
