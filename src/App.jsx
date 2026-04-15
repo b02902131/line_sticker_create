@@ -527,6 +527,7 @@ function App() {
     setMainImage(null)
     setTabImage(null)
     setBackgroundThreshold(240)
+    setChromaKeyBgColor('#333333')
     setCurrentStep(1)
 
     // 讀取描述（優先從檔案）
@@ -546,6 +547,7 @@ function App() {
         if (saved.tabImage) setTabImage(saved.tabImage)
         if (saved.rawTabImage) setRawTabImage(saved.rawTabImage)
         if (saved.backgroundThreshold) setBackgroundThreshold(saved.backgroundThreshold)
+        if (saved.chromaKeyBgColor) setChromaKeyBgColor(saved.chromaKeyBgColor)
         if (saved.previewBgColor) setPreviewBgColor(saved.previewBgColor)
         // 根據已有數據跳到對應步驟
         const mainReady = stickerSpec.hasMain ? !!saved.mainImage : true
@@ -604,6 +606,8 @@ function App() {
   const [mainImage, setMainImage] = useState(null) // 主要圖片 240x240
   const [tabImage, setTabImage] = useState(null) // 標籤圖片 96x74
   const [backgroundThreshold, setBackgroundThreshold] = useState(240) // 去背閾值
+  const [chromaKeyBgColor, setChromaKeyBgColor] = useState('#333333') // 8宮格 chroma-key 背景色（#RRGGBB）
+  const [confirmEachGrid, setConfirmEachGrid] = useState(true) // 8宮格逐組生成/確認
   const [processingBackground, setProcessingBackground] = useState(false) // 正在處理去背
   const [regeneratingMain, setRegeneratingMain] = useState(false)
   const [removingMainBg, setRemovingMainBg] = useState(false)
@@ -647,11 +651,12 @@ function App() {
         tabImage,
         rawTabImage,
         backgroundThreshold,
+        chromaKeyBgColor,
         previewBgColor
       }).catch(err => console.warn('保存圖片到 IndexedDB 失敗:', err))
     }, 1000)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [gridImages, processedGridImages, cutImages, rawCutImages, mainImage, tabImage, rawTabImage, selectedCharacter, backgroundThreshold, previewBgColor])
+  }, [gridImages, processedGridImages, cutImages, rawCutImages, mainImage, tabImage, rawTabImage, selectedCharacter, backgroundThreshold, chromaKeyBgColor, previewBgColor])
 
   // 共用：處理圖片檔案（支援多張）
   const handleImageFiles = useCallback(async (files) => {
@@ -1015,6 +1020,131 @@ function App() {
   }
 
   // 步驟 6-8: 生成8宮格、去背、裁切
+  const getTotalStickerCount = () => (descriptions?.length || count || 0)
+  const getGridCount = () => Math.ceil(getTotalStickerCount() / 8)
+  const getNextGridIndex = () => {
+    const gridCount = getGridCount()
+    for (let i = 0; i < gridCount; i++) {
+      if (!gridImages?.[i]) return i
+    }
+    return gridCount
+  }
+
+  const buildGridStickers = (gridIndex) => {
+    const startIndex = gridIndex * 8
+    const endIndex = Math.min(startIndex + 8, getTotalStickerCount())
+    const gridStickers = []
+    for (let i = startIndex; i < endIndex; i++) {
+      gridStickers.push(descriptions[i])
+    }
+    while (gridStickers.length < 8) {
+      gridStickers.push({ description: '空白貼圖', text: '' })
+    }
+    return gridStickers
+  }
+
+  const generateOneGridAt = async (gridIndex, { skipDelay = false } = {}) => {
+    const gridCount = getGridCount()
+    if (gridIndex < 0 || gridIndex >= gridCount) throw new Error('gridIndex 超出範圍')
+
+    if (!skipDelay && gridIndex > 0) {
+      const delay = 3000
+      setProgress(`等待 ${delay / 1000} 秒後生成下一張8宮格（避免 API 過載）...`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+
+    setProgress(`正在生成第 ${gridIndex + 1}/${gridCount} 張8宮格圖片...`)
+    const gridStickers = buildGridStickers(gridIndex)
+
+    // 直接生成包含8宮格的圖片（有重試 + 指數退避）
+    let gridImage = null
+    let retryCount = 0
+    const maxRetries = 5
+    while (!gridImage && retryCount < maxRetries) {
+      try {
+        gridImage = await generateGrid8Image(
+          apiKey,
+          characterImage,
+          gridStickers,
+          textStyle || '',
+          // 用「前面全部」八宮格作為風格參考（在 utils 內會做上限保護避免 payload 過大）
+          gridIndex > 0 ? (gridImages.length > 0 ? gridImages : null) : null,
+          stickerSpec,
+          { bgColor: chromaKeyBgColor }
+        )
+      } catch (error) {
+        retryCount++
+        if (retryCount < maxRetries) {
+          const isOverloaded = error.message && (
+            error.message.includes('overloaded') ||
+            error.message.includes('overload') ||
+            error.message.includes('請稍後再試')
+          )
+          const baseDelay = isOverloaded ? 10000 : 5000
+          const delay = baseDelay * Math.pow(2, retryCount - 1)
+          console.warn(`生成8宮格失敗，重試中 (${retryCount}/${maxRetries})...`, error.message)
+          setProgress(`生成8宮格失敗，正在重試 (${retryCount}/${maxRetries})，等待 ${Math.round(delay / 1000)} 秒...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        } else {
+          console.error(`生成8宮格失敗，已重試 ${maxRetries} 次:`, error)
+          throw new Error(`生成第 ${gridIndex + 1} 張8宮格失敗（已重試 ${maxRetries} 次）: ${error.message}`)
+        }
+      }
+    }
+
+    if (!gridImage) throw new Error('生成8宮格失敗：未取得圖片')
+
+    // 去背（只處理這一組）
+    setProgress(`正在為第 ${gridIndex + 1}/${gridCount} 張8宮格去背...`)
+    const processed = await removeBackgroundSimple(gridImage, backgroundThreshold, null, { bgColor: chromaKeyBgColor })
+
+    // append / replace
+    setGridImages(prev => {
+      const u = [...prev]
+      u[gridIndex] = gridImage
+      return u
+    })
+    setProcessedGridImages(prev => {
+      const u = [...prev]
+      u[gridIndex] = processed
+      return u
+    })
+
+    setCurrentStep(7)
+    if (confirmEachGrid) {
+      setProgress(`已生成第 ${gridIndex + 1}/${gridCount} 組八宮格。確認 OK 後可按「生成下一組」。`)
+    } else {
+      setProgress('去背完成，請調整去背程度後點擊「下一步」進行裁切')
+    }
+  }
+
+  const handleGenerateNextGrid = async () => {
+    if (!characterImage) {
+      alert('請先生成或上傳角色圖片')
+      return
+    }
+    if (descriptions.length === 0) {
+      alert('請先生成文字描述')
+      return
+    }
+    const gridCount = getGridCount()
+    const nextIndex = getNextGridIndex()
+    if (nextIndex >= gridCount) {
+      alert('已經生成完所有八宮格了')
+      return
+    }
+    setLoading(true)
+    try {
+      await generateOneGridAt(nextIndex)
+    } catch (error) {
+      console.error('生成失敗:', error)
+      alert(`生成失敗: ${error.message}`)
+      setProgress('')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleGenerateStickers = async () => {
     if (!characterImage) {
       alert('請先生成或上傳角色圖片')
@@ -1048,7 +1178,14 @@ function App() {
     setProgress('開始生成貼圖...')
 
     try {
-      const gridCount = Math.ceil(count / 8) // 需要多少張8宮格
+      if (confirmEachGrid) {
+        // 逐組生成：一次只產一組（從「下一組」開始）
+        const nextIndex = getNextGridIndex()
+        await generateOneGridAt(nextIndex, { skipDelay: true })
+        return
+      }
+
+      const gridCount = getGridCount() // 需要多少張8宮格
       const allGridImages = []
       const allProcessedImages = []
       const allCutImages = []
@@ -1066,7 +1203,7 @@ function App() {
         
         // 獲取當前8宮格的8個貼圖描述
         const startIndex = gridIndex * 8
-        const endIndex = Math.min(startIndex + 8, count)
+        const endIndex = Math.min(startIndex + 8, getTotalStickerCount())
         const gridStickers = []
         
         for (let i = startIndex; i < endIndex; i++) {
@@ -1095,14 +1232,15 @@ function App() {
         
         while (!gridImage && retryCount < maxRetries) {
           try {
-            const previousGrid = gridIndex > 0 ? allGridImages[gridIndex - 1] : null
             gridImage = await generateGrid8Image(
               apiKey,
               characterImage,
               gridStickers,
               textStyle || '',
-              previousGrid,
-              stickerSpec
+              // 用「前面全部」八宮格作為風格參考（在 utils 內會做上限保護避免 payload 過大）
+              gridIndex > 0 ? allGridImages.slice(0, gridIndex) : null,
+              stickerSpec,
+              { bgColor: chromaKeyBgColor }
             )
           } catch (error) {
             retryCount++
@@ -1141,7 +1279,7 @@ function App() {
       const initialProcessed = []
       for (let i = 0; i < allGridImages.length; i++) {
         setProgress(`正在為第 ${i + 1}/${allGridImages.length} 張8宮格去背...`)
-        const processed = await removeBackgroundSimple(allGridImages[i], backgroundThreshold, null)
+        const processed = await removeBackgroundSimple(allGridImages[i], backgroundThreshold, null, { bgColor: chromaKeyBgColor })
         initialProcessed.push(processed)
       }
       setProcessedGridImages(initialProcessed)
@@ -1165,7 +1303,7 @@ function App() {
       const newProcessed = []
       for (let i = 0; i < gridImages.length; i++) {
         setProgress(`正在為第 ${i + 1}/${gridImages.length} 張8宮格重新去背...`)
-        const processed = await removeBackgroundSimple(gridImages[i], backgroundThreshold, null)
+        const processed = await removeBackgroundSimple(gridImages[i], backgroundThreshold, null, { bgColor: chromaKeyBgColor })
         newProcessed.push(processed)
       }
       setProcessedGridImages(newProcessed)
@@ -1202,7 +1340,7 @@ function App() {
 
         // 計算這個8宮格實際有多少張貼圖
         const startIndex = gridIndex * 8
-        const endIndex = Math.min(startIndex + 8, count)
+        const endIndex = Math.min(startIndex + 8, getTotalStickerCount())
         const actualCutCount = endIndex - startIndex
 
         allCutImages.push(...cutCells.slice(0, actualCutCount))
@@ -1274,18 +1412,22 @@ function App() {
       while (gridStickers.length < 8) {
         gridStickers.push({ description: '空白', text: '　' })
       }
-      // 用相鄰的八宮格作為風格參考
-      const previousGrid = gridIndex > 0 ? gridImages[gridIndex - 1]
-        : (gridImages.length > 1 ? gridImages[gridIndex + 1] : null)
       const newGridImage = await generateGrid8Image(
-        apiKey, characterImage, gridStickers, textStyle || '', previousGrid, stickerSpec
+        apiKey,
+        characterImage,
+        gridStickers,
+        textStyle || '',
+        // 重產也用「除了自己以外的全部」八宮格當參考（utils 內會做上限保護）
+        gridImages.filter((_, i) => i !== gridIndex),
+        stickerSpec,
+        { bgColor: chromaKeyBgColor }
       )
       const newGridImages = [...gridImages]
       newGridImages[gridIndex] = newGridImage
       setGridImages(newGridImages)
 
       // 重新去背 + 裁切這組
-      const processed = await removeBackgroundSimple(newGridImage, backgroundThreshold, null)
+      const processed = await removeBackgroundSimple(newGridImage, backgroundThreshold, null, { bgColor: chromaKeyBgColor })
       const newProcessed = [...processedGridImages]
       newProcessed[gridIndex] = processed
       setProcessedGridImages(newProcessed)
@@ -1313,7 +1455,7 @@ function App() {
   const handleRemoveBgGrid = async (gridIndex) => {
     setRemovingBgGrid(gridIndex)
     try {
-      const processed = await removeBackgroundSimple(gridImages[gridIndex], backgroundThreshold, null)
+      const processed = await removeBackgroundSimple(gridImages[gridIndex], backgroundThreshold, null, { bgColor: chromaKeyBgColor })
       setProcessedGridImages(prev => {
         const updated = [...prev]
         updated[gridIndex] = processed
@@ -1525,6 +1667,77 @@ function App() {
   const [removingBgIndex, setRemovingBgIndex] = useState(null)
   const [stickerThresholds, setStickerThresholds] = useState({}) // per-sticker 閾值
   const getStickerThreshold = (idx) => stickerThresholds[idx] ?? backgroundThreshold
+
+  // 裁切前（只有八宮格時）也能對單格操作：需要時才從 grid 即時裁出單張，寫回 cutImages/rawCutImages
+  const [preCutGridCellPreviews, setPreCutGridCellPreviews] = useState({}) // { [gridIndex]: string[] } from processedGrid
+  const [preCutPanelOpen, setPreCutPanelOpen] = useState({}) // { [gridIndex]: boolean }
+  const [preCutLoadingGridIndex, setPreCutLoadingGridIndex] = useState(null) // gridIndex | null
+
+  const ensureArraySize = (arr, n) => {
+    const u = Array.isArray(arr) ? [...arr] : []
+    while (u.length < n) u.push(null)
+    return u
+  }
+
+  const ensureGridCellsReady = async (gridIndex, { alsoCachePreviews = false } = {}) => {
+    if (!gridImages[gridIndex]) throw new Error('找不到對應的八宮格圖片')
+    const totalNeeded = descriptions.length || count
+    const startIdx = gridIndex * 8
+    const endIdx = Math.min(startIdx + 8, totalNeeded)
+
+    // raw：從原圖裁切（同時也確保 output 尺寸一致）
+    const rawCuts = await splitGrid8(
+      gridImages[gridIndex],
+      stickerSpec.generateCell.w,
+      stickerSpec.generateCell.h,
+      stickerSpec.cell.w,
+      stickerSpec.cell.h
+    )
+
+    // processed：優先用 processedGridImages 裁切，否則以 rawCuts 單張去背補齊
+    let processedCuts = null
+    if (processedGridImages[gridIndex]) {
+      processedCuts = await splitGrid8(
+        processedGridImages[gridIndex],
+        stickerSpec.generateCell.w,
+        stickerSpec.generateCell.h,
+        stickerSpec.cell.w,
+        stickerSpec.cell.h
+      )
+    } else {
+      processedCuts = []
+      for (let i = 0; i < 8; i++) {
+        if (!rawCuts[i]) { processedCuts[i] = null; continue }
+        processedCuts[i] = await removeBackgroundSimple(rawCuts[i], getStickerThreshold(startIdx + i), null, { bgColor: chromaKeyBgColor })
+      }
+    }
+
+    setRawCutImages(prev => {
+      const u = ensureArraySize(prev, totalNeeded)
+      for (let i = 0; i < endIdx - startIdx; i++) u[startIdx + i] = rawCuts[i]
+      return u
+    })
+    setCutImages(prev => {
+      const u = ensureArraySize(prev, totalNeeded)
+      for (let i = 0; i < endIdx - startIdx; i++) u[startIdx + i] = processedCuts[i]
+      return u
+    })
+
+    if (alsoCachePreviews) {
+      setPreCutGridCellPreviews(prev => ({ ...prev, [gridIndex]: processedCuts }))
+    }
+  }
+
+  const ensureStickerReady = async (stickerIndex) => {
+    const totalNeeded = descriptions.length || count
+    if (stickerIndex < 0 || stickerIndex >= totalNeeded) return
+    const hasRaw = !!rawCutImages[stickerIndex]
+    const hasCut = !!cutImages[stickerIndex]
+    if (hasRaw && hasCut) return
+    const gridIndex = Math.floor(stickerIndex / 8)
+    await ensureGridCellsReady(gridIndex)
+  }
+
   const handleRemoveBgSingle = async (stickerIndex) => {
     setRemovingBgIndex(stickerIndex)
     try {
@@ -1600,7 +1813,7 @@ function App() {
       // 重新去背 8 宮格（從原圖）
       const newProcessed = []
       for (let i = 0; i < gridImages.length; i++) {
-        const processed = await removeBackgroundSimple(gridImages[i], backgroundThreshold, null)
+        const processed = await removeBackgroundSimple(gridImages[i], backgroundThreshold, null, { bgColor: chromaKeyBgColor })
         newProcessed.push(processed)
       }
       setProcessedGridImages(newProcessed)
@@ -2287,13 +2500,49 @@ function App() {
                     </div>
                   </div>
                 ))}
+                <div className="form-group" style={{ marginTop: '6px' }}>
+                  <label>8 宮格背景色（chroma-key，會影響生成 + 去背）</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <input
+                      type="color"
+                      value={chromaKeyBgColor}
+                      onChange={(e) => setChromaKeyBgColor(e.target.value)}
+                      style={{ width: '44px', height: '36px', padding: 0, border: '1px solid #ddd', borderRadius: '6px' }}
+                      title="選擇 8 宮格底色（生成前先選好）"
+                    />
+                    <input
+                      type="text"
+                      value={chromaKeyBgColor.toUpperCase()}
+                      onChange={() => {}}
+                      readOnly
+                      className="form-input"
+                      style={{ width: '110px', fontFamily: 'monospace' }}
+                    />
+                    <span style={{ fontSize: '12px', color: '#999' }}>
+                      建議避開角色/文字常用色（例如純白、膚色、常見衣服色）
+                    </span>
+                  </div>
+                </div>
                 <button
                   className="btn btn-primary"
                   onClick={handleGenerateStickers}
                   disabled={loading}
                 >
-                  {loading ? '生成中...' : '開始生成8宮格貼圖'}
+                  {loading ? '生成中...' : (confirmEachGrid ? '逐組生成：先產一組' : '開始生成8宮格貼圖')}
                 </button>
+                <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={confirmEachGrid}
+                      onChange={(e) => setConfirmEachGrid(e.target.checked)}
+                    />
+                    <span style={{ fontSize: '14px', color: '#555' }}>逐組生成/確認（不要一次全產）</span>
+                  </label>
+                  <span style={{ fontSize: '12px', color: '#999' }}>
+                    開啟後每次只會生成 1 組八宮格，確認 OK 再生成下一組
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -2323,7 +2572,7 @@ function App() {
                     try {
                       const newProcessed = []
                       for (let i = 0; i < gridImages.length; i++) {
-                        const processed = await removeBackgroundSimple(gridImages[i], newThreshold, null)
+                        const processed = await removeBackgroundSimple(gridImages[i], newThreshold, null, { bgColor: chromaKeyBgColor })
                         newProcessed.push(processed)
                       }
                       setProcessedGridImages(newProcessed)
@@ -2342,6 +2591,47 @@ function App() {
               </p>
             </div>
 
+            <div className="form-group">
+              <label>8 宮格背景色（chroma-key）</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <input
+                  type="color"
+                  value={chromaKeyBgColor}
+                  onChange={async (e) => {
+                    const newColor = e.target.value
+                    setChromaKeyBgColor(newColor)
+                    // 實時重跑去背（用新背景色）
+                    setProcessingBackground(true)
+                    try {
+                      const newProcessed = []
+                      for (let i = 0; i < gridImages.length; i++) {
+                        const processed = await removeBackgroundSimple(gridImages[i], backgroundThreshold, null, { bgColor: newColor })
+                        newProcessed.push(processed)
+                      }
+                      setProcessedGridImages(newProcessed)
+                    } catch (error) {
+                      console.error('去背處理失敗:', error)
+                    } finally {
+                      setProcessingBackground(false)
+                    }
+                  }}
+                  style={{ width: '44px', height: '36px', padding: 0, border: '1px solid #ddd', borderRadius: '6px' }}
+                  title="選擇 8 宮格底色（需與生成時一致）"
+                />
+                <input
+                  type="text"
+                  value={chromaKeyBgColor.toUpperCase()}
+                  onChange={() => {}}
+                  readOnly
+                  className="form-input"
+                  style={{ width: '110px', fontFamily: 'monospace' }}
+                />
+                <span style={{ fontSize: '12px', color: '#999' }}>
+                  會影響「8 宮格」去背與後續單張補去背；主要圖/標籤圖不受影響
+                </span>
+              </div>
+            </div>
+
             <button
               className="btn btn-primary"
               onClick={handleApplyBackgroundRemoval}
@@ -2349,6 +2639,22 @@ function App() {
             >
               {processingBackground ? '處理中...' : '應用去背調整'}
             </button>
+
+            {confirmEachGrid && (
+              <div style={{ marginTop: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleGenerateNextGrid}
+                  disabled={loading || processingBackground || getNextGridIndex() >= getGridCount()}
+                  style={{ width: 'auto' }}
+                >
+                  {gridImages.length >= getGridCount() ? '已生成完全部八宮格' : `生成下一組（目前 ${gridImages.length}/${getGridCount()}）`}
+                </button>
+                <span style={{ fontSize: '12px', color: '#999' }}>
+                  若這組不滿意，可用下方「單組重產」先調到滿意再繼續
+                </span>
+              </div>
+            )}
 
             <div className="preview-group">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
@@ -2447,6 +2753,166 @@ function App() {
               }}>
                 💡 提示：切換到深色背景可以更好地檢查去背效果，因為 LINE 貼圖會在深色背景下使用。如果去背不完整，在深色背景下會更容易發現問題。
               </p>
+            </div>
+
+            {/* 裁切前單格工具（在八宮格階段就能對某一格做重產/去背/選去/微調/上傳） */}
+            <div className="preview-group" style={{ marginTop: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                <h3 style={{ margin: 0 }}>裁切前單張工具（{processedGridImages.length} 張8宮格）</h3>
+                <div style={{ fontSize: '12px', color: '#777' }}>
+                  點「展開」後，每格會出現：重產 / 去背 / 選去 / 微調 / 上傳
+                </div>
+              </div>
+              <div className="grid-preview" style={{ marginTop: '10px' }}>
+                {processedGridImages.map((img, gridIdx) => {
+                  const open = !!preCutPanelOpen[gridIdx]
+                  const cellPreviews = preCutGridCellPreviews[gridIdx] || null
+                  const totalNeeded = descriptions.length || count
+                  const startIdx = gridIdx * 8
+                  const visibleCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
+                  return (
+                    <div key={`precut-${gridIdx}`} className="grid-item" style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <img src={img} alt={`裁切前單格 8宮格 ${gridIdx + 1}`} className="preview-image grid-image" style={{ background: previewBgColor }} />
+                          <div>
+                            <div style={{ fontWeight: 'bold' }}>8宮格 {gridIdx + 1}</div>
+                            <div style={{ fontSize: '12px', color: '#777' }}>單張範圍：#{startIdx + 1} - #{startIdx + visibleCount}</div>
+                          </div>
+                        </div>
+                        <button
+                          className="btn btn-secondary btn-inline"
+                          disabled={preCutLoadingGridIndex !== null || visibleCount === 0}
+                          onClick={async () => {
+                            setPreCutPanelOpen(prev => ({ ...prev, [gridIdx]: !open }))
+                            if (open) return
+                            if (preCutGridCellPreviews[gridIdx]) return
+                            setPreCutLoadingGridIndex(gridIdx)
+                            try {
+                              await ensureGridCellsReady(gridIdx, { alsoCachePreviews: true })
+                            } catch (e) {
+                              alert('載入單格預覽失敗: ' + e.message)
+                            } finally {
+                              setPreCutLoadingGridIndex(null)
+                            }
+                          }}
+                        >
+                          {preCutLoadingGridIndex === gridIdx ? '載入中...' : (open ? '收合' : '展開')}
+                        </button>
+                      </div>
+
+                      {open && (
+                        <div style={{ marginTop: '10px', border: '1px solid #eee', borderRadius: '8px', padding: '10px', background: '#fff' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: '10px' }}>
+                            {Array.from({ length: visibleCount }).map((_, cellIdx) => {
+                              const stickerIndex = startIdx + cellIdx
+                              const thumb = cellPreviews?.[cellIdx] || null
+                              return (
+                                <div key={`precut-cell-${stickerIndex}`} style={{ border: '1px solid #f0f0f0', borderRadius: '8px', padding: '8px', background: '#fafafa' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                    <strong style={{ fontSize: '12px' }}>#{stickerIndex + 1}</strong>
+                                    <span style={{ fontSize: '11px', color: '#888' }}>{descriptions[stickerIndex]?.text || ''}</span>
+                                  </div>
+                                  <div style={{ width: '100%', aspectRatio: '1', background: '#fff', borderRadius: '6px', border: '1px solid #eee', overflow: 'hidden', marginBottom: '6px' }}>
+                                    {thumb ? (
+                                      <img src={thumb} alt={`#${stickerIndex + 1}`} style={{ width: '100%', height: '100%', objectFit: 'contain', background: previewBgColor }} />
+                                    ) : (
+                                      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#999' }}>預覽準備中</div>
+                                    )}
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px' }}>
+                                    <button
+                                      className="btn btn-regen"
+                                      disabled={regeneratingIndex !== null || loading}
+                                      title="重新生成（選參考圖 + 自訂 prompt）"
+                                      onClick={async () => {
+                                        try {
+                                          // 先確保這組 8 格都裁出來，才有參考圖可選
+                                          await ensureGridCellsReady(gridIdx)
+                                          openRegenPanel(stickerIndex)
+                                        } catch (e) {
+                                          alert('準備單張資料失敗: ' + e.message)
+                                        }
+                                      }}
+                                    >重產</button>
+                                    <button
+                                      className="btn btn-regen"
+                                      disabled={removingBgIndex !== null || loading}
+                                      title="自動去背（單張）"
+                                      onClick={async () => {
+                                        try {
+                                          await ensureStickerReady(stickerIndex)
+                                          await handleRemoveBgSingle(stickerIndex)
+                                        } catch (e) {
+                                          alert('單張去背失敗: ' + e.message)
+                                        }
+                                      }}
+                                    >去背</button>
+                                    <button
+                                      className="btn btn-regen"
+                                      title="點擊指定區域去背（單張）"
+                                      onClick={async () => {
+                                        try {
+                                          await ensureStickerReady(stickerIndex)
+                                          setClickRemoveUndoStack([])
+                                          setPickedColor(null)
+                                          setClickRemoveTarget({ index: stickerIndex, type: 'sticker' })
+                                        } catch (e) {
+                                          alert('準備選去失敗: ' + e.message)
+                                        }
+                                      }}
+                                    >選去</button>
+                                    <button
+                                      className="btn btn-regen"
+                                      title="微調裁切位置"
+                                      onClick={async () => {
+                                        try {
+                                          await ensureGridCellsReady(gridIdx)
+                                          handleOpenCropAdjust(stickerIndex)
+                                        } catch (e) {
+                                          alert('開啟微調失敗: ' + e.message)
+                                        }
+                                      }}
+                                    >微調</button>
+                                    <label className="btn btn-regen" style={{ cursor: 'pointer', textAlign: 'center' }} title="上傳替換圖片">
+                                      上傳
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        style={{ display: 'none' }}
+                                        onChange={async (e) => {
+                                          try {
+                                            const file = e.target.files?.[0]
+                                            if (!file) return
+                                            const dataUrl = await fileToDataURL(file)
+                                            const totalNeeded2 = descriptions.length || count
+                                            setRawCutImages(prev => {
+                                              const u = ensureArraySize(prev, totalNeeded2)
+                                              u[stickerIndex] = dataUrl
+                                              return u
+                                            })
+                                            setCutImages(prev => {
+                                              const u = ensureArraySize(prev, totalNeeded2)
+                                              u[stickerIndex] = dataUrl
+                                              return u
+                                            })
+                                          } finally {
+                                            e.target.value = ''
+                                          }
+                                        }}
+                                      />
+                                    </label>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
 
             <button

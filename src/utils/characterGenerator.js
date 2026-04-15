@@ -698,8 +698,9 @@ export async function generateGrid8Image(
   characterImageDataUrl,
   stickers,
   textStyleDescription = '',
-  previousGridImageDataUrl = null,
-  spec = null
+  referenceGridImages = null,
+  spec = null,
+  opts = {}
 ) {
   // 預設用一般貼圖規格
   const cellW = spec?.generateCell?.w || 370
@@ -709,6 +710,8 @@ export async function generateGrid8Image(
   const aspectLabel = cellW === cellH ? '1:2 (Portrait, square cells)' : '9:16 (Vertical Portrait)'
   const dividerXs = `x=${cellW}`
   const dividerYs = `y=${cellH}, ${cellH * 2}, ${cellH * 3}`
+
+  const bgColor = (opts?.bgColor || '#333333').toUpperCase()
 
   const safeTextStyle = textStyleDescription && textStyleDescription.trim()
     ? textStyleDescription.trim()
@@ -723,29 +726,41 @@ export async function generateGrid8Image(
     return `位置 ${row}-${col} (第${index + 1}個): ${sticker.description}${textPart}`
   }).join('\n')
 
-  const prompt = `Create a single image containing 8 LINE stickers arranged in a 2-column by 4-row layout on a SOLID BRIGHT GREEN (#00FF00) CANVAS.
+  const refCount = Array.isArray(referenceGridImages)
+    ? referenceGridImages.filter(Boolean).length
+    : (referenceGridImages ? 1 : 0)
+
+  const prompt = `Create a single image containing 8 LINE stickers arranged in a 2-column by 4-row layout on a SOLID CHROMA-KEY BACKGROUND (${bgColor}) CANVAS.
 
 🚫🚫🚫 CRITICAL INSTRUCTION - INVISIBLE BOUNDARIES 🚫🚫🚫
 **DO NOT DRAW ANY GRID LINES, BORDERS, OR FRAMES.**
-The 8 stickers must float on a single, continuous bright green (#00FF00) background.
-Imagine 8 stickers placed on a bright green sheet of paper. NO lines between them.
+The 8 stickers must float on a single, continuous ${bgColor} background.
+Imagine 8 stickers placed on a solid-color sheet of paper. NO lines between them.
 
 Character Reference: **STRICTLY FOLLOW the provided character image.** The stickers MUST look exactly like the same character in different poses. Maintain the same facial features, clothing, colors, and proportions.
 ${STRICT_CONSISTENCY_RULES}
-${previousGridImageDataUrl ? `
-🎨 STYLE CONSISTENCY WITH PREVIOUS GRID 🎨
-A previous grid image is provided as a second reference image. You MUST match its style exactly:
-- The exact same art style, line thickness, and coloring technique
-- The same text box style, font style, and text placement approach
-- The same level of detail, shading, and proportions
-This new grid must look like it belongs to the SAME sticker pack as the previous grid.
+${refCount > 0 ? `
+🎨 STYLE CONSISTENCY WITH ALL PREVIOUSLY GENERATED STICKERS (MUST FOLLOW) 🎨
+One or more previously generated 8-sticker grid images are provided as additional reference images.
+Together, they contain ALL stickers generated so far for this sticker pack (previous pages).
+
+Treat them as the canonical "already-approved" style baseline.
+Now generate THIS grid as the NEXT 8 stickers for the SAME pack:
+- Keep the same character identity (face, outfit, proportions)
+- Keep the exact same art style, line thickness, and coloring technique
+- Keep the exact same text box design language (shape, background color vibe, border/shadow, corner radius)
+- Keep the same font style (weight, outline, color) and a consistent text placement approach
+- Keep the same level of detail, shading, composition balance, and cropping/framing tendencies
+
+Only the per-cell scene/action and the per-cell text content should change according to the "位置 row-col" descriptions below.
+This new grid MUST look like a seamless continuation — a sibling page — of the reference grids.
 ` : ''}
 🎨 BACKGROUND COLOR - CRITICAL FOR REMOVAL 🎨
-**The ENTIRE background MUST be solid bright green (#00FF00, pure green).**
-- This is a chroma-key green screen background for automatic background removal.
+**The ENTIRE background MUST be solid ${bgColor} (pure, uninterrupted).**
+- This is a chroma-key background for automatic background removal.
 - DO NOT use white, light gray, or any color that might appear in the sticker artwork.
-- Every pixel that is NOT part of a sticker character/text MUST be exactly #00FF00.
-- The sticker artwork itself must NOT contain bright green (#00FF00). Avoid using this exact green in character designs, text boxes, or any sticker element.
+- Every pixel that is NOT part of a sticker character/text MUST be exactly ${bgColor}.
+- The sticker artwork itself must NOT contain the background color (${bgColor}). Avoid using this exact color in character designs, text boxes, or any sticker element.
 ${IMAGE_VISIBILITY_RULES}
 Target Aspect Ratio: ${aspectLabel}
 ${hasAnyText ? `Text Style Guidelines: ${safeTextStyle}` : `⚠️ NO TEXT: These stickers are image-only. Do NOT include any text, words, letters, or text boxes in the stickers.`}
@@ -760,7 +775,7 @@ Virtual Cell Size: ${cellW}px × ${cellH}px (for positioning only - DO NOT DRAW 
 - ❌ NO horizontal dividers at ${dividerYs}.
 - ❌ NO frames around the stickers.
 - ❌ NO "window pane" effects.
-- ❌ The background must be pure, uninterrupted bright green (#00FF00) between the character graphics.
+- ❌ The background must be pure, uninterrupted ${bgColor} between the character graphics.
 
 **Layout Guide (Mental Model only - DO NOT DRAW):**
 - Column 1: Left half (x=0-${cellW - 1})
@@ -774,15 +789,15 @@ ${stickersDescription}
 
 MANDATORY REQUIREMENTS:
 1. **Content Boundary**: Each sticker MUST be fully contained and CENTERED within its virtual cell (${cellW}x${cellH}). Leave at least 10% padding on all sides. NO part of any sticker may cross into adjacent cells. If a character or text is near the cell edge, shrink it.
-2. **Seamless Background**: The bright green (#00FF00) background must flow continuously across the entire ${gridW}x${gridH} image.
+2. **Seamless Background**: The ${bgColor} background must flow continuously across the entire ${gridW}x${gridH} image.
 3. **No Separators**: If you feel the urge to draw a line to separate stickers, STOP. Leave it as green background.
 
 VERIFICATION CHECKLIST:
 ✓ Image size ${gridW}x${gridH}
 ✓ 8 distinct stickers
 ✓ **ZERO VISIBLE DIVIDING LINES**
-✓ **Continuous bright green (#00FF00) background**
-✓ **NO bright green in sticker artwork itself**
+✓ **Continuous ${bgColor} background**
+✓ **NO background color (${bgColor}) in sticker artwork itself**
 ✓ Characters centered in their virtual cells
 
 FINAL INSTRUCTION - READ CAREFULLY:
@@ -862,13 +877,22 @@ Each sticker occupies its own virtual ${cellW}x${cellH} space, but there are NO 
       console.warn(`警告：圖片數據較大 (${base64SizeMB.toFixed(2)}MB)，可能導致 API 請求失敗`)
     }
 
-    // 壓縮前一張八宮格圖片作為風格參考
-    let previousGridBase64 = null
-    if (previousGridImageDataUrl) {
+    // 壓縮多張八宮格圖片作為風格參考（保留相容：也接受單張 string）
+    const refGridUrls = Array.isArray(referenceGridImages)
+      ? referenceGridImages.filter(Boolean)
+      : (referenceGridImages ? [referenceGridImages] : [])
+
+    // 重要：參考圖太多會讓請求體爆掉，這裡做上限保護
+    // - 取「全部以前的 grids」，但最多只帶最後 10 張（Gemini parts + payload size）
+    const refGridUrlsCapped = refGridUrls.slice(-10)
+
+    const refGridBase64s = []
+    for (let idx = 0; idx < refGridUrlsCapped.length; idx++) {
+      const url = refGridUrlsCapped[idx]
       try {
         const prevImg = new Image()
         prevImg.crossOrigin = 'anonymous'
-        prevImg.src = previousGridImageDataUrl
+        prevImg.src = url
         await new Promise((resolve) => {
           prevImg.onload = () => {
             const maxSize = 512
@@ -879,15 +903,15 @@ Each sticker occupies its own virtual ${cellW}x${cellH} space, but there are NO 
             const ctx = canvas.getContext('2d')
             ctx.drawImage(prevImg, 0, 0, canvas.width, canvas.height)
             const compressed = canvas.toDataURL('image/jpeg', 0.85)
-            previousGridBase64 = compressed.split(',')[1]
-            console.log(`前一張八宮格已壓縮: ${prevImg.width}x${prevImg.height} -> ${canvas.width}x${canvas.height}`)
+            const b64 = compressed.split(',')[1]
+            if (b64 && b64.length > 100) refGridBase64s.push(b64)
             resolve()
           }
-          prevImg.onerror = () => { console.warn('前一張八宮格載入失敗，跳過風格參考'); resolve() }
+          prevImg.onerror = () => { console.warn('參考八宮格載入失敗，跳過其中一張'); resolve() }
           setTimeout(() => { if (!prevImg.complete) resolve() }, 5000)
         })
       } catch (err) {
-        console.warn('前一張八宮格壓縮失敗:', err)
+        console.warn('參考八宮格壓縮失敗，跳過其中一張:', err)
       }
     }
 
@@ -895,8 +919,8 @@ Each sticker occupies its own virtual ${cellW}x${cellH} space, but there are NO 
       { text: prompt },
       { inlineData: { mimeType: 'image/png', data: base64Data } }
     ]
-    if (previousGridBase64) {
-      parts.push({ inlineData: { mimeType: 'image/jpeg', data: previousGridBase64 } })
+    for (const b64 of refGridBase64s) {
+      parts.push({ inlineData: { mimeType: 'image/jpeg', data: b64 } })
     }
 
     const requestBody = {

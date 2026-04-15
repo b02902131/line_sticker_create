@@ -430,7 +430,7 @@ export async function removeBackground(imageDataUrl, apiKey) {
  * 使用 Canvas 進行智能去背（基於顏色閾值 + 邊緣檢測）
  * 優先從外圍開始去背，避免影響內部內容
  */
-export async function removeBackgroundSimple(imageDataUrl, threshold = 240, maskData = null) {
+export async function removeBackgroundSimple(imageDataUrl, threshold = 240, maskData = null, opts = undefined) {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.crossOrigin = 'anonymous'
@@ -448,22 +448,45 @@ export async function removeBackgroundSimple(imageDataUrl, threshold = 240, mask
       const width = canvas.width
       const height = canvas.height
 
-      // 自動偵測背景色：取四個角落像素的平均色
-      const corners = [
-        0, // top-left
-        (width - 1) * 4, // top-right
-        ((height - 1) * width) * 4, // bottom-left
-        ((height - 1) * width + (width - 1)) * 4 // bottom-right
-      ]
-      let bgR = 0, bgG = 0, bgB = 0
-      for (const ci of corners) {
-        bgR += data[ci]; bgG += data[ci + 1]; bgB += data[ci + 2]
+      const parseHexColor = (hex) => {
+        if (!hex || typeof hex !== 'string') return null
+        const s = hex.trim()
+        const m = /^#([0-9a-fA-F]{6})$/.exec(s)
+        if (!m) return null
+        const v = m[1]
+        return {
+          r: parseInt(v.slice(0, 2), 16),
+          g: parseInt(v.slice(2, 4), 16),
+          b: parseInt(v.slice(4, 6), 16)
+        }
       }
-      bgR = Math.round(bgR / 4); bgG = Math.round(bgG / 4); bgB = Math.round(bgB / 4)
+
+      // 背景色來源：
+      // - 若提供 opts.bgColor（#RRGGBB）→ 強制使用該色作為 chroma-key 目標
+      // - 否則自動偵測：取四個角落像素的平均色
+      const forcedBg = parseHexColor(opts?.bgColor)
+      let bgR = 0, bgG = 0, bgB = 0
+      if (forcedBg) {
+        bgR = forcedBg.r; bgG = forcedBg.g; bgB = forcedBg.b
+      } else {
+        const corners = [
+          0, // top-left
+          (width - 1) * 4, // top-right
+          ((height - 1) * width) * 4, // bottom-left
+          ((height - 1) * width + (width - 1)) * 4 // bottom-right
+        ]
+        for (const ci of corners) {
+          bgR += data[ci]; bgG += data[ci + 1]; bgB += data[ci + 2]
+        }
+        bgR = Math.round(bgR / 4); bgG = Math.round(bgG / 4); bgB = Math.round(bgB / 4)
+      }
+
       const bgAvg = (bgR + bgG + bgB) / 3
 
-      // 判斷背景類型：亮色（白色系）用亮度閾值，彩色（綠幕等）用色差閾值
-      const isChromaKey = bgAvg < 200 // 非白色背景 → 用色差模式
+      // 判斷背景類型：
+      // - 強制背景色 → 一律走色差模式（chroma-key）
+      // - 否則：亮色（白色系）用亮度閾值，彩色（綠幕等）用色差閾值
+      const isChromaKey = forcedBg ? true : (bgAvg < 200)
       const colorDistThreshold = threshold < 200 ? threshold : 80 // 色差容忍度
 
       const isBackground = (r, g, b) => {
