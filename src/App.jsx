@@ -1972,7 +1972,13 @@ function App() {
                   <button
                     className="btn btn-primary"
                     onClick={characterImage ? handleRegenerateCharacter : handleGenerateCharacter}
-                    disabled={generatingCharacter || !apiKey || (!characterDescription.trim() && !theme.trim() && uploadedCharacterImages.length === 0)}
+                    disabled={
+                      generatingCharacter ||
+                      (!characterImage && (
+                        !apiKey ||
+                        (!characterDescription.trim() && !theme.trim() && uploadedCharacterImages.length === 0)
+                      ))
+                    }
                   >
                     {generatingCharacter ? '生成中...' : (characterImage ? '重新生成' : '生成角色')}
                   </button>
