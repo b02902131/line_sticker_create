@@ -3,33 +3,28 @@
 ## Project Overview
 LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。
 
-## Handoff — 2026-04-15 (午後)
+## Handoff — 2026-04-15
 
 ### Branch: `main`
 
-### What was done (本次 session)
-- **單圖重產 RegenPanel**：新增手動挑 ref + extraPrompt UI（App.jsx `regenPanel` state / `openRegenPanel` / `toggleRegenRef`）。預設均勻抽樣作為 starting point，使用者可 toggle，上限 10 張
-- **characterGenerator.js `generateStickerWithText` 新增 opts**：`{ extraPrompt, refLabels }`。styleRefNote 從泛泛敘述強化成明列（text box / font / placement / 圖文排版 / pose / linework）。extraPrompt 以 `USER DIRECTIVE` block 高優先插入 prompt，支援 `#N` 引用 refLabels
-- **deploy**：commit `61f3c00` + `npm run deploy` → gh-pages published
-- **CLAUDE.md** 加 Discord 通訊 step 6：寫完 outbox 要 call `notify-main.sh`（新 infra，見 nekoroni repo `discord-multi-session/notify-main.sh`）
-- **.gitignore cleanup**：`git rm --cached discord-inbox.md discord-outbox.md`（早就加進 gitignore 但還被追蹤）
-- `local/TODOs.md` backlog 加「[待驗證] 單圖重產優化」
+### What was done
+- **8 宮格底色可自選（生成 + 去背一致）**：新增 `chromaKeyBgColor`（預設 `#333333`），並把 prompt 的背景色從寫死改為參數（`generateGrid8Image(..., opts.bgColor)`）。
+- **去背支援指定背景色**：`removeBackgroundSimple(imageDataUrl, threshold, maskData, opts.bgColor)` 可強制用指定色做色差去背（不靠角落偵測）。
+- **8 宮格逐組生成/確認**：新增 `confirmEachGrid` 模式，可先產 1 組 → 檢查/重產/調去背 → 再按「生成下一組」。
+- **UI 調整**：背景色選取器放在 Step 6（生成前先選），Step 7 保留一份用於「改色後重跑去背」。
 
 ### Current state
-- commit `61f3c00` + `8229c83`，working tree 乾淨
-- Deploy URL: https://b02902131.github.io/line_sticker_create/ 線上版 `8229c83`（或更新）
-- 單圖重產功能「待驗證」— 需真跑一次 regen + 勾 ref + 打 `#N` prompt 驗收
+- build OK（`npm run build`）
+- 8 宮格可用深灰或任意色當底，避免綠幕難去背/誤判；逐組生成適合人工逐頁確認品質
 
 ### What's next
-- **驗證單圖重產**：生一套貼圖 → 點某張重產 → 勾 2-3 ref → prompt 寫「follow #2 text box, match #3 pose」→ 看是否貼近 ref 風格。OK 就把 `local/TODOs.md` 的 `[待驗證]` 改成 `[x]`
-- 醜馬：app 建角色 → bulk import 16 筆 → 生貼圖 → tab/main 製作 → ZIP → 送審
-- 承接：狗勾圖鑑繼續、0406-眼淚製造機送審、tab/main 反覆去背 bug
+- 驗證「單圖重產」：勾 ref + `#N` 引用 + extraPrompt，確認風格對齊效果
+- 若逐組生成要更穩：補上「跳到指定組」/「自動偵測缺的組」的 UX（目前以 nextIndex 為主）
 
 ### Key context for next session
-- **RegenPanel UI 走「全部預選 + toggle 取消」**不是「空選」— 跟原 plan 不同。使用者想要純手選可改 `openRegenPanel` 預設為空
-- `generateStickerWithText` signature 多了 `opts` 參數，舊 caller 不用改（預設 `{}`）
-- Discord step 6 協議：subagent 寫 outbox 後必跑 `/Users/kafka1125/Documents/project/nekoroni/discord-multi-session/notify-main.sh stampmill "<reason>"`，否則主 session 不會知道
-- 本次 session 有過 subagent call notify 但沒寫 outbox 的 bug，需要持續糾正
+- `src/utils/characterGenerator.js`：`generateGrid8Image` 多了 `opts`（目前用 `opts.bgColor`）
+- `src/utils/imageUtils.js`：`removeBackgroundSimple` 多第 4 參數 `opts`（`{ bgColor: '#RRGGBB' }`）
+- `src/App.jsx`：Step 6 有底色選取器；Step 7 有「生成下一組」按鈕（逐組模式）
 
 ---
 
