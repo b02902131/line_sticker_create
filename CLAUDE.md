@@ -3,36 +3,33 @@
 ## Project Overview
 LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。
 
-## Handoff — 2026-04-15
+## Handoff — 2026-04-15 (午後)
 
 ### Branch: `main`
 
 ### What was done (本次 session)
-- 醜馬第三彈 listing 從 9 筆擴成 **16 筆**（phone 端 pull 補上 token/AI/賽博龐克梗 6 筆）
-- 新增 `.claude/skills/line-sticker-text/` skill：解析 listing.md 文字清單 → StampMill bulk import 格式 `文字：描述`（app `handleImportBulkText` 吃這個）
-- `.gitignore` 解禁 `.claude/skills/` 保留其他 `.claude/*` ignore
-- 頁面 header 顯示版號：vite define `__APP_VERSION__` / `__GIT_HASH__` / `__BUILD_DATE__`，h1 右側小灰字串
-- Deploy 到 gh-pages（從 04-12 之後累積 7+ commits 含 `fitToSize` 未上線，這次一併推上）
-- Synthesize 醜馬 characterStance：「賽博龐克風醜萌馬，AI 時代過勞但裝沒事，愛用成語諧音吐槽，身上電路發光但眼神死」
+- **單圖重產 RegenPanel**：新增手動挑 ref + extraPrompt UI（App.jsx `regenPanel` state / `openRegenPanel` / `toggleRegenRef`）。預設均勻抽樣作為 starting point，使用者可 toggle，上限 10 張
+- **characterGenerator.js `generateStickerWithText` 新增 opts**：`{ extraPrompt, refLabels }`。styleRefNote 從泛泛敘述強化成明列（text box / font / placement / 圖文排版 / pose / linework）。extraPrompt 以 `USER DIRECTIVE` block 高優先插入 prompt，支援 `#N` 引用 refLabels
+- **deploy**：commit `61f3c00` + `npm run deploy` → gh-pages published
+- **CLAUDE.md** 加 Discord 通訊 step 6：寫完 outbox 要 call `notify-main.sh`（新 infra，見 nekoroni repo `discord-multi-session/notify-main.sh`）
+- **.gitignore cleanup**：`git rm --cached discord-inbox.md discord-outbox.md`（早就加進 gitignore 但還被追蹤）
+- `local/TODOs.md` backlog 加「[待驗證] 單圖重產優化」
 
 ### Current state
-- `0415-醜馬第三彈/listing.md` 完成 16 筆 + 標題 EN/ZH/JP + 角色設計
-- `local/data/characters.json` 仍無「醜馬」角色，bulk import 需先在 app 建角色拿 charId
-- Deploy URL: https://b02902131.github.io/line_sticker_create/ 線上版 `68d9cc6`
-- `fitToSize` (zipDownloader.js:24) 下載時 contain 等比縮放已上線
-- Working tree 乾淨
+- commit `61f3c00` + `8229c83`，working tree 乾淨
+- Deploy URL: https://b02902131.github.io/line_sticker_create/ 線上版 `8229c83`（或更新）
+- 單圖重產功能「待驗證」— 需真跑一次 regen + 勾 ref + 打 `#N` prompt 驗收
 
 ### What's next
+- **驗證單圖重產**：生一套貼圖 → 點某張重產 → 勾 2-3 ref → prompt 寫「follow #2 text box, match #3 pose」→ 看是否貼近 ref 風格。OK 就把 `local/TODOs.md` 的 `[待驗證]` 改成 `[x]`
 - 醜馬：app 建角色 → bulk import 16 筆 → 生貼圖 → tab/main 製作 → ZIP → 送審
-- 第一/二彈 listing 補建（或整併為一包送審）
-- 優化單圖重產：文字 prompt / 圖文排版也要參考其他單圖一致風格（backlogs）
 - 承接：狗勾圖鑑繼續、0406-眼淚製造機送審、tab/main 反覆去背 bug
 
 ### Key context for next session
-- bulk import 格式：`文字：描述`（冒號分隔，支援 `- [ ]` / 數字編號前綴，line 864 regex strip）
-- `/line-sticker-text` skill 在 `StampMill/.claude/skills/line-sticker-text/SKILL.md`（project scoped），新 session 自動載
-- 版號 define 在 `vite.config.js`，build 時 execSync `git rev-parse --short HEAD`
-- （沿用：綠幕去背、裁切微調、localStorage 移除、local/ 獨立 repo、表情貼 hasMain）
+- **RegenPanel UI 走「全部預選 + toggle 取消」**不是「空選」— 跟原 plan 不同。使用者想要純手選可改 `openRegenPanel` 預設為空
+- `generateStickerWithText` signature 多了 `opts` 參數，舊 caller 不用改（預設 `{}`）
+- Discord step 6 協議：subagent 寫 outbox 後必跑 `/Users/kafka1125/Documents/project/nekoroni/discord-multi-session/notify-main.sh stampmill "<reason>"`，否則主 session 不會知道
+- 本次 session 有過 subagent call notify 但沒寫 outbox 的 bug，需要持續糾正
 
 ---
 
