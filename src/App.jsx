@@ -7,6 +7,7 @@ import { downloadAsZip } from './utils/zipDownloader'
 import { saveCharacterImages, loadCharacterImages, deleteCharacterImages, hasCharacterImages } from './utils/imageStore'
 import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
 import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from './utils/stickerSpecs'
+import GridMultiCropAdjustPanel from './components/GridMultiCropAdjustPanel'
 
 const LS_KEY = 'stampmill_draft'
 
@@ -1334,14 +1335,20 @@ function App() {
 
       for (let gridIndex = 0; gridIndex < gridCount; gridIndex++) {
         setProgress(`正在裁切第 ${gridIndex + 1}/${gridCount} 張8宮格...`)
-        const cutCells = await splitGrid8(processedGridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-        // 也從原圖裁切保留未去背版本
-        const rawCutCells = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-
-        // 計算這個8宮格實際有多少張貼圖
         const startIndex = gridIndex * 8
         const endIndex = Math.min(startIndex + 8, getTotalStickerCount())
         const actualCutCount = endIndex - startIndex
+
+        let cutCells = null
+        let rawCutCells = null
+        if (actualCutCount > 0 && hasAnyCropAdjustInRange(startIndex, actualCutCount)) {
+          cutCells = await cropGridCellsWithAdjust(gridIndex, { useProcessed: true })
+          rawCutCells = await cropGridCellsWithAdjust(gridIndex, { useProcessed: false })
+        } else {
+          cutCells = await splitGrid8(processedGridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+          // 也從原圖裁切保留未去背版本
+          rawCutCells = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+        }
 
         allCutImages.push(...cutCells.slice(0, actualCutCount))
         allRawCutImages.push(...rawCutCells.slice(0, actualCutCount))
@@ -1458,9 +1465,22 @@ function App() {
       newProcessed[gridIndex] = processed
       setProcessedGridImages(newProcessed)
 
-      const newCuts = await splitGrid8(processed, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-      const updatedCutImages = [...cutImages]
       const actualCount = endIdx - startIdx
+      let newCuts = null
+      if (actualCount > 0 && hasAnyCropAdjustInRange(startIdx, actualCount)) {
+        // processedGridImages 尚未 setState 完，但可直接用 processedSrc 逐格裁
+        const { generateCell, cell } = stickerSpec
+        newCuts = []
+        for (let i = 0; i < 8; i++) {
+          const row = Math.floor(i / 2)
+          const col = i % 2
+          const adj = getCropAdjust(startIdx + i)
+          newCuts.push(await cropSingleCell(processed, row, col, generateCell.w, generateCell.h, cell.w, cell.h, adj.x, adj.y, adj.zoom))
+        }
+      } else {
+        newCuts = await splitGrid8(processed, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+      }
+      const updatedCutImages = [...cutImages]
       for (let i = 0; i < actualCount; i++) {
         updatedCutImages[startIdx + i] = newCuts[i]
       }
@@ -1487,12 +1507,21 @@ function App() {
         updated[gridIndex] = processed
         return updated
       })
-      // 重新裁切這組的 stickers
-      const cuts = await splitGrid8(processed, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-      const rawCuts = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+      // 重新裁切這組的 stickers（若有微調裁切 offset/zoom，需套用）
+      const startIdx = gridIndex * 8
+      const totalNeeded = descriptions.length || count
+      const actualCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
+      let cuts = null
+      let rawCuts = null
+      if (actualCount > 0 && hasAnyCropAdjustInRange(startIdx, actualCount)) {
+        cuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: true })
+        rawCuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: false })
+      } else {
+        cuts = await splitGrid8(processed, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+        rawCuts = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+      }
       setCutImages(prev => {
         const updated = [...prev]
-        const startIdx = gridIndex * 8
         cuts.forEach((cut, i) => {
           if (startIdx + i < updated.length) {
             updated[startIdx + i] = cut
@@ -1502,7 +1531,6 @@ function App() {
       })
       setRawCutImages(prev => {
         const updated = [...prev]
-        const startIdx = gridIndex * 8
         rawCuts.forEach((cut, i) => {
           if (startIdx + i < updated.length) {
             updated[startIdx + i] = cut
@@ -1521,6 +1549,41 @@ function App() {
   const [cropAdjustTarget, setCropAdjustTarget] = useState(null)
   const [cropAdjustHistory, setCropAdjustHistory] = useState({}) // { [stickerIdx]: { x, y, zoom } }
   const [stickerHistory, setStickerHistory] = useState({}) // { [stickerIdx]: [{ raw, processed }] }
+  const [multiCropAdjustTarget, setMultiCropAdjustTarget] = useState(null) // { gridIndex }
+
+  const getCropAdjust = useCallback((stickerIndex) => {
+    const v = cropAdjustHistory?.[stickerIndex]
+    return v ? { x: v.x || 0, y: v.y || 0, zoom: v.zoom || 1 } : { x: 0, y: 0, zoom: 1 }
+  }, [cropAdjustHistory])
+
+  const hasAnyCropAdjustInRange = useCallback((startIdx, count) => {
+    for (let i = 0; i < count; i++) {
+      const v = cropAdjustHistory?.[startIdx + i]
+      if (v && ((v.x || 0) !== 0 || (v.y || 0) !== 0 || (v.zoom || 1) !== 1)) return true
+    }
+    return false
+  }, [cropAdjustHistory])
+
+  const cropGridCellsWithAdjust = useCallback(async (gridIndex, { useProcessed = true } = {}) => {
+    const src = useProcessed ? (processedGridImages[gridIndex] || gridImages[gridIndex]) : gridImages[gridIndex]
+    if (!src) throw new Error('找不到對應的八宮格圖片')
+    const { generateCell, cell } = stickerSpec
+    const startIdx = gridIndex * 8
+    const out = []
+    for (let i = 0; i < 8; i++) {
+      const cellRow = Math.floor(i / 2)
+      const cellCol = i % 2
+      const adj = getCropAdjust(startIdx + i)
+      out.push(await cropSingleCell(
+        src,
+        cellRow, cellCol,
+        generateCell.w, generateCell.h,
+        cell.w, cell.h,
+        adj.x, adj.y, adj.zoom
+      ))
+    }
+    return out
+  }, [getCropAdjust, gridImages, processedGridImages, stickerSpec])
 
   const handleOpenCropAdjust = (stickerIdx) => {
     const gridIndex = Math.floor(stickerIdx / 8)
@@ -1529,6 +1592,70 @@ function App() {
     const cellCol = cellIndex % 2
     const prev = cropAdjustHistory[stickerIdx] || { x: 0, y: 0, zoom: 1 }
     setCropAdjustTarget({ stickerIndex: stickerIdx, gridIndex, cellRow, cellCol, prevOffset: prev })
+  }
+
+  const handleOpenMultiCropAdjust = async (gridIdx) => {
+    // 讓使用者在「裁切前」階段就能一次調整 8 個筐
+    const totalNeeded = descriptions.length || count
+    const startIdx = gridIdx * 8
+    const visibleCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
+    if (visibleCount === 0) return
+    try {
+      await ensureGridCellsReady(gridIdx, { alsoCachePreviews: true })
+      setMultiCropAdjustTarget({ gridIndex: gridIdx })
+    } catch (e) {
+      alert('開啟批次微調失敗: ' + e.message)
+    }
+  }
+
+  const handleApplyMultiCropAdjust = async (gridIdx, cellsForGrid) => {
+    const totalNeeded = descriptions.length || count
+    const startIdx = gridIdx * 8
+    const visibleCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
+    if (visibleCount === 0) { setMultiCropAdjustTarget(null); return }
+
+    const { generateCell, cell } = stickerSpec
+    const processedSrc = processedGridImages[gridIdx] || gridImages[gridIdx]
+    const rawSrc = gridImages[gridIdx]
+
+    // 1) 更新 offset/zoom 記錄
+    setCropAdjustHistory(prev => {
+      const u = { ...(prev || {}) }
+      for (let i = 0; i < visibleCount; i++) {
+        const stickerIndex = startIdx + i
+        const v = cellsForGrid[i] || { x: 0, y: 0, zoom: 1 }
+        u[stickerIndex] = { x: v.x || 0, y: v.y || 0, zoom: v.zoom || 1 }
+      }
+      return u
+    })
+
+    // 2) 立刻重新裁切這組（確保畫面預覽與下載結果一致）
+    try {
+      const newCuts = []
+      const newRaws = []
+      for (let i = 0; i < visibleCount; i++) {
+        const row = Math.floor(i / 2)
+        const col = i % 2
+        const v = cellsForGrid[i] || { x: 0, y: 0, zoom: 1 }
+        newCuts.push(await cropSingleCell(processedSrc, row, col, generateCell.w, generateCell.h, cell.w, cell.h, v.x || 0, v.y || 0, v.zoom || 1))
+        newRaws.push(await cropSingleCell(rawSrc, row, col, generateCell.w, generateCell.h, cell.w, cell.h, v.x || 0, v.y || 0, v.zoom || 1))
+      }
+      setCutImages(prev => {
+        const u = ensureArraySize(prev, totalNeeded)
+        for (let i = 0; i < visibleCount; i++) u[startIdx + i] = newCuts[i]
+        return u
+      })
+      setRawCutImages(prev => {
+        const u = ensureArraySize(prev, totalNeeded)
+        for (let i = 0; i < visibleCount; i++) u[startIdx + i] = newRaws[i]
+        return u
+      })
+      setPreCutGridCellPreviews(prev => ({ ...(prev || {}), [gridIdx]: newCuts }))
+    } catch (e) {
+      alert('套用批次微調後裁切失敗: ' + e.message)
+    } finally {
+      setMultiCropAdjustTarget(null)
+    }
   }
 
   const handleCropAdjustConfirm = async (offsetX, offsetY, zoom = 1) => {
@@ -1711,30 +1838,46 @@ function App() {
     const startIdx = gridIndex * 8
     const endIdx = Math.min(startIdx + 8, totalNeeded)
 
-    // raw：從原圖裁切（同時也確保 output 尺寸一致）
-    const rawCuts = await splitGrid8(
-      gridImages[gridIndex],
-      stickerSpec.generateCell.w,
-      stickerSpec.generateCell.h,
-      stickerSpec.cell.w,
-      stickerSpec.cell.h
-    )
+    const visibleCount = endIdx - startIdx
+    const useAdjust = visibleCount > 0 && hasAnyCropAdjustInRange(startIdx, visibleCount)
 
-    // processed：優先用 processedGridImages 裁切，否則以 rawCuts 單張去背補齊
+    let rawCuts = null
     let processedCuts = null
-    if (processedGridImages[gridIndex]) {
-      processedCuts = await splitGrid8(
-        processedGridImages[gridIndex],
+    if (useAdjust) {
+      rawCuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: false })
+      if (processedGridImages[gridIndex]) {
+        processedCuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: true })
+      } else {
+        processedCuts = []
+        for (let i = 0; i < 8; i++) {
+          if (!rawCuts[i]) { processedCuts[i] = null; continue }
+          processedCuts[i] = await removeBackgroundSimple(rawCuts[i], getStickerThreshold(startIdx + i), null, { bgColor: chromaKeyBgColor })
+        }
+      }
+    } else {
+      // raw：從原圖裁切（同時也確保 output 尺寸一致）
+      rawCuts = await splitGrid8(
+        gridImages[gridIndex],
         stickerSpec.generateCell.w,
         stickerSpec.generateCell.h,
         stickerSpec.cell.w,
         stickerSpec.cell.h
       )
-    } else {
-      processedCuts = []
-      for (let i = 0; i < 8; i++) {
-        if (!rawCuts[i]) { processedCuts[i] = null; continue }
-        processedCuts[i] = await removeBackgroundSimple(rawCuts[i], getStickerThreshold(startIdx + i), null, { bgColor: chromaKeyBgColor })
+      // processed：優先用 processedGridImages 裁切，否則以 rawCuts 單張去背補齊
+      if (processedGridImages[gridIndex]) {
+        processedCuts = await splitGrid8(
+          processedGridImages[gridIndex],
+          stickerSpec.generateCell.w,
+          stickerSpec.generateCell.h,
+          stickerSpec.cell.w,
+          stickerSpec.cell.h
+        )
+      } else {
+        processedCuts = []
+        for (let i = 0; i < 8; i++) {
+          if (!rawCuts[i]) { processedCuts[i] = null; continue }
+          processedCuts[i] = await removeBackgroundSimple(rawCuts[i], getStickerThreshold(startIdx + i), null, { bgColor: chromaKeyBgColor })
+        }
       }
     }
 
@@ -1787,10 +1930,19 @@ function App() {
   const handleRecutSingle = async (gridIndex) => {
     setRecutGridIndex(gridIndex)
     try {
-      const src = processedGridImages[gridIndex] || gridImages[gridIndex]
-      const cuts = await splitGrid8(src, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-      const rawCuts = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
       const startIdx = gridIndex * 8
+      const totalNeeded = descriptions.length || count
+      const actualCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
+      let cuts = null
+      let rawCuts = null
+      if (actualCount > 0 && hasAnyCropAdjustInRange(startIdx, actualCount)) {
+        cuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: true })
+        rawCuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: false })
+      } else {
+        const src = processedGridImages[gridIndex] || gridImages[gridIndex]
+        cuts = await splitGrid8(src, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+        rawCuts = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+      }
       setCutImages(prev => {
         const u = [...prev]
         cuts.forEach((cut, i) => { if (startIdx + i < u.length) u[startIdx + i] = cut })
@@ -1816,11 +1968,21 @@ function App() {
       let allCut = []
       let allRaw = []
       for (let i = 0; i < processedGridImages.length; i++) {
-        const src = processedGridImages[i] || gridImages[i]
-        const cuts = await splitGrid8(src, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-        const rawCuts = await splitGrid8(gridImages[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-        allCut = allCut.concat(cuts)
-        allRaw = allRaw.concat(rawCuts)
+        const startIdx = i * 8
+        const totalNeeded = descriptions.length || count
+        const actualCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
+        if (actualCount > 0 && hasAnyCropAdjustInRange(startIdx, actualCount)) {
+          const cuts = await cropGridCellsWithAdjust(i, { useProcessed: true })
+          const rawCuts = await cropGridCellsWithAdjust(i, { useProcessed: false })
+          allCut = allCut.concat(cuts)
+          allRaw = allRaw.concat(rawCuts)
+        } else {
+          const src = processedGridImages[i] || gridImages[i]
+          const cuts = await splitGrid8(src, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+          const rawCuts = await splitGrid8(gridImages[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+          allCut = allCut.concat(cuts)
+          allRaw = allRaw.concat(rawCuts)
+        }
       }
       const totalNeeded = descriptions.length || count
       setCutImages(allCut.slice(0, totalNeeded))
@@ -1847,10 +2009,28 @@ function App() {
       let allCut = []
       let allRaw = []
       for (let i = 0; i < newProcessed.length; i++) {
-        const cuts = await splitGrid8(newProcessed[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-        const rawCuts = await splitGrid8(gridImages[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-        allCut = allCut.concat(cuts)
-        allRaw = allRaw.concat(rawCuts)
+        const startIdx = i * 8
+        const totalNeeded = descriptions.length || count
+        const actualCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
+        if (actualCount > 0 && hasAnyCropAdjustInRange(startIdx, actualCount)) {
+          const { generateCell, cell } = stickerSpec
+          const cuts = []
+          const rawCuts = []
+          for (let c = 0; c < 8; c++) {
+            const row = Math.floor(c / 2)
+            const col = c % 2
+            const adj = getCropAdjust(startIdx + c)
+            cuts.push(await cropSingleCell(newProcessed[i], row, col, generateCell.w, generateCell.h, cell.w, cell.h, adj.x, adj.y, adj.zoom))
+            rawCuts.push(await cropSingleCell(gridImages[i], row, col, generateCell.w, generateCell.h, cell.w, cell.h, adj.x, adj.y, adj.zoom))
+          }
+          allCut = allCut.concat(cuts)
+          allRaw = allRaw.concat(rawCuts)
+        } else {
+          const cuts = await splitGrid8(newProcessed[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+          const rawCuts = await splitGrid8(gridImages[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
+          allCut = allCut.concat(cuts)
+          allRaw = allRaw.concat(rawCuts)
+        }
       }
       const totalNeeded = descriptions.length || count
       setCutImages(allCut.slice(0, totalNeeded))
@@ -2806,25 +2986,35 @@ function App() {
                             <div style={{ fontSize: '12px', color: '#777' }}>單張範圍：#{startIdx + 1} - #{startIdx + visibleCount}</div>
                           </div>
                         </div>
-                        <button
-                          className="btn btn-secondary btn-inline"
-                          disabled={preCutLoadingGridIndex !== null || visibleCount === 0}
-                          onClick={async () => {
-                            setPreCutPanelOpen(prev => ({ ...prev, [gridIdx]: !open }))
-                            if (open) return
-                            if (preCutGridCellPreviews[gridIdx]) return
-                            setPreCutLoadingGridIndex(gridIdx)
-                            try {
-                              await ensureGridCellsReady(gridIdx, { alsoCachePreviews: true })
-                            } catch (e) {
-                              alert('載入單格預覽失敗: ' + e.message)
-                            } finally {
-                              setPreCutLoadingGridIndex(null)
-                            }
-                          }}
-                        >
-                          {preCutLoadingGridIndex === gridIdx ? '載入中...' : (open ? '收合' : '展開')}
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button
+                            className="btn btn-secondary btn-inline"
+                            disabled={preCutLoadingGridIndex !== null || visibleCount === 0}
+                            onClick={async () => {
+                              setPreCutPanelOpen(prev => ({ ...prev, [gridIdx]: !open }))
+                              if (open) return
+                              if (preCutGridCellPreviews[gridIdx]) return
+                              setPreCutLoadingGridIndex(gridIdx)
+                              try {
+                                await ensureGridCellsReady(gridIdx, { alsoCachePreviews: true })
+                              } catch (e) {
+                                alert('載入單格預覽失敗: ' + e.message)
+                              } finally {
+                                setPreCutLoadingGridIndex(null)
+                              }
+                            }}
+                          >
+                            {preCutLoadingGridIndex === gridIdx ? '載入中...' : (open ? '收合' : '展開')}
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-inline"
+                            disabled={preCutLoadingGridIndex !== null || visibleCount === 0}
+                            title="在八宮格上一次調整 8 個裁切筐（可複選移動/縮放）"
+                            onClick={() => handleOpenMultiCropAdjust(gridIdx)}
+                          >
+                            批次微調
+                          </button>
+                        </div>
                       </div>
 
                       {open && (
@@ -3208,7 +3398,7 @@ function App() {
                   {gridImages.map((img, idx) => (
                     <div key={idx} className="grid-item">
                       <img src={processedGridImages[idx] || img} alt={`8宮格 ${idx + 1}`} className="preview-image grid-image" style={{ background: previewBgColor }} />
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: '4px' }}>
                         <button
                           className="btn btn-regen"
                           onClick={() => openGridRegenPanel(idx)}
@@ -3229,6 +3419,14 @@ function App() {
                           onClick={() => { setClickRemoveUndoStack([]); setPickedColor(null); setClickRemoveTarget({ index: idx, type: 'grid' }) }}
                         >
                           選去
+                        </button>
+                        <button
+                          className="btn btn-regen"
+                          onClick={() => handleOpenMultiCropAdjust(idx)}
+                          disabled={preCutLoadingGridIndex !== null}
+                          title="在八宮格上一次調整 8 個裁切筐（可複選移動/縮放）"
+                        >
+                          批次微調
                         </button>
                         <button
                           className="btn btn-regen"
@@ -3504,6 +3702,22 @@ function App() {
           </>
         )}
       </div>
+
+      {/* 八宮格批次微調 Modal */}
+      {multiCropAdjustTarget && (
+        <GridMultiCropAdjustPanel
+          gridSrc={(processedGridImages[multiCropAdjustTarget.gridIndex] || gridImages[multiCropAdjustTarget.gridIndex])}
+          rawGridSrc={gridImages[multiCropAdjustTarget.gridIndex]}
+          gridIndex={multiCropAdjustTarget.gridIndex}
+          startStickerIndex={multiCropAdjustTarget.gridIndex * 8}
+          visibleCount={Math.max(0, Math.min(8, (descriptions.length || count) - multiCropAdjustTarget.gridIndex * 8))}
+          cellW={stickerSpec.generateCell.w}
+          cellH={stickerSpec.generateCell.h}
+          initialAdjustments={cropAdjustHistory}
+          onApply={(cellsForGrid) => handleApplyMultiCropAdjust(multiCropAdjustTarget.gridIndex, cellsForGrid)}
+          onCancel={() => setMultiCropAdjustTarget(null)}
+        />
+      )}
 
       {/* 點擊去背 Modal */}
       {clickRemoveTarget && (
