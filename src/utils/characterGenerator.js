@@ -1048,8 +1048,10 @@ export async function generateStickerWithText(
   textStyleDescription = '',
   width = 370,
   height = 320,
-  referenceStickers = []
+  referenceStickers = [],
+  opts = {}
 ) {
+  const { extraPrompt = '', refLabels = [] } = opts
   // 確保 textStyleDescription 不是 undefined 或空
   const safeTextStyle = textStyleDescription && textStyleDescription.trim() 
     ? textStyleDescription.trim() 
@@ -1080,8 +1082,22 @@ The text "${text}" must have a CLEAR and VISIBLE text box/background:
   const cleanText = text?.trim() || ''
   const hasText = cleanText.length > 0
 
+  const labelList = refLabels.length === referenceStickers.length && refLabels.length > 0
+    ? refLabels.map(n => `#${n}`).join(', ')
+    : referenceStickers.map((_, i) => `#${i + 1}`).join(', ')
   const styleRefNote = referenceStickers.length > 0
-    ? `\n🎨 STYLE REFERENCE: ${referenceStickers.length} existing stickers from the same pack are provided as additional reference images. You MUST match their exact art style, line thickness, coloring technique, text box style, and overall aesthetic. The new sticker must look like it belongs to the same set.\n`
+    ? `\n🎨 STYLE REFERENCE: ${referenceStickers.length} existing stickers from the same pack are attached as reference images, labeled ${labelList} (in the order provided after the character image). The new sticker MUST match them on ALL of these axes:
+- Text box style: shape, background color, border thickness, shadow, corner radius
+- Font: weight, style, color, outline — must look identical to reference text
+- Text placement: where the text box sits (top / bottom / corner) relative to character
+- 圖文排版 (image-text layout): ratio of character area vs text area, balance, composition
+- Character pose & framing: similar crop level, visual weight, body orientation
+- Line thickness & coloring technique: same linework, shading, palette
+The new sticker must look like a sibling drawn by the same artist for the same pack.\n`
+    : ''
+
+  const userDirective = extraPrompt && extraPrompt.trim()
+    ? `\n📌 USER DIRECTIVE (highest priority, overrides conflicting defaults):\n${extraPrompt.trim()}\nWhen the directive mentions #N, it refers to the reference image labeled #N above.\n`
     : ''
 
   const prompt = hasText
@@ -1089,7 +1105,7 @@ The text "${text}" must have a CLEAR and VISIBLE text box/background:
 
 Character Reference: Use the provided character image as reference for style and appearance.
 ${STRICT_CONSISTENCY_RULES}
-${styleRefNote}Scene Description: ${cleanDescription}
+${styleRefNote}${userDirective}Scene Description: ${cleanDescription}
 Text Content: "${cleanText}"
 Text Style Guidelines: ${safeTextStyle}
 
@@ -1119,7 +1135,7 @@ Final Verification:
 
 Character Reference: Use the provided character image as reference for style and appearance.
 ${STRICT_CONSISTENCY_RULES}
-${styleRefNote}Scene Description: ${cleanDescription}
+${styleRefNote}${userDirective}Scene Description: ${cleanDescription}
 
 ⚠️ NO TEXT: This sticker is image-only. Do NOT include any text, words, letters, or text boxes.
 

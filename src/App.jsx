@@ -1652,7 +1652,30 @@ function App() {
 
   // 單張貼圖重產
   const [regeneratingIndex, setRegeneratingIndex] = useState(null)
-  const handleRegenerateSingleSticker = async (stickerIndex) => {
+  const [regenPanel, setRegenPanel] = useState(null) // { index, extraPrompt, refIndexes: [] }
+  const openRegenPanel = (idx) => {
+    // 預設均勻抽樣作為 starting point，使用者可調
+    const candidates = rawCutImages
+      .map((img, i) => ({ img, i }))
+      .filter(({ img, i }) => i !== idx && img)
+    const maxRef = 10
+    const step = Math.max(1, Math.floor(candidates.length / maxRef))
+    const defaultRefs = candidates
+      .filter((_, i) => i % step === 0)
+      .slice(0, maxRef)
+      .map(c => c.i)
+    setRegenPanel({ index: idx, extraPrompt: '', refIndexes: defaultRefs })
+  }
+  const toggleRegenRef = (i) => {
+    setRegenPanel(prev => {
+      if (!prev) return prev
+      const has = prev.refIndexes.includes(i)
+      if (has) return { ...prev, refIndexes: prev.refIndexes.filter(x => x !== i) }
+      if (prev.refIndexes.length >= 10) return prev // 上限
+      return { ...prev, refIndexes: [...prev.refIndexes, i] }
+    })
+  }
+  const handleRegenerateSingleSticker = async (stickerIndex, opts = {}) => {
     const desc = descriptions[stickerIndex]
     if (!desc) return
 
@@ -1660,16 +1683,29 @@ function App() {
     setProgress(`正在重新生成第 ${stickerIndex + 1} 張貼圖...`)
 
     try {
-      // 收集其他貼圖作為風格參考（均勻抽樣，上限受 20MB request size 限制）
-      const candidates = rawCutImages
-        .map((img, i) => ({ img, i }))
-        .filter(({ img, i }) => i !== stickerIndex && img)
-      const maxRef = 10
-      const step = Math.max(1, Math.floor(candidates.length / maxRef))
-      const refStickers = candidates
-        .filter((_, i) => i % step === 0)
-        .slice(0, maxRef)
-        .map(c => c.img)
+      // 參考圖：優先用 opts.refIndexes（使用者選），否則 fallback 均勻抽樣
+      let refStickers = []
+      let refLabels = []
+      if (opts.refIndexes && opts.refIndexes.length > 0) {
+        for (const i of opts.refIndexes.slice(0, 10)) {
+          const img = rawCutImages[i]
+          if (img && i !== stickerIndex) {
+            refStickers.push(img)
+            refLabels.push(i + 1) // 編號對應原貼圖編號
+          }
+        }
+      } else {
+        const candidates = rawCutImages
+          .map((img, i) => ({ img, i }))
+          .filter(({ img, i }) => i !== stickerIndex && img)
+        const maxRef = 10
+        const step = Math.max(1, Math.floor(candidates.length / maxRef))
+        const picked = candidates
+          .filter((_, i) => i % step === 0)
+          .slice(0, maxRef)
+        refStickers = picked.map(c => c.img)
+        refLabels = picked.map(c => c.i + 1)
+      }
 
       // 用 generateCell 尺寸生成（表情貼有 2× 超採樣），再縮回 cell 尺寸
       const genW = stickerSpec.generateCell.w
@@ -1685,7 +1721,8 @@ function App() {
         textStyle || '',
         genW,
         genH,
-        refStickers
+        refStickers,
+        { extraPrompt: opts.extraPrompt || '', refLabels }
       )
 
       // 如果 generateCell 跟 cell 尺寸不同（表情貼超採樣），縮放到最終尺寸
@@ -2753,9 +2790,9 @@ function App() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: '4px' }}>
                       <button
                         className="btn btn-regen"
-                        onClick={() => handleRegenerateSingleSticker(idx)}
+                        onClick={() => openRegenPanel(idx)}
                         disabled={regeneratingIndex !== null || loading}
-                        title="重新生成"
+                        title="重新生成（選參考圖 + 自訂 prompt）"
                       >
                         {regeneratingIndex === idx ? '...' : '重產'}
                       </button>
@@ -2838,6 +2875,53 @@ function App() {
                             />
                           ))}
                         </div>
+                      </div>
+                    )}
+                    {regenPanel?.index === idx && (
+                      <div style={{ marginTop: '8px', border: '2px solid #ff9800', borderRadius: '8px', padding: '10px', background: '#fffbf2' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <strong style={{ fontSize: '0.9em', color: '#e65100' }}>重產 #{idx + 1} · 選參考圖 + 補 prompt</strong>
+                          <button className="btn btn-regen" style={{ padding: '2px 8px', fontSize: '0.8em' }} onClick={() => setRegenPanel(null)}>取消</button>
+                        </div>
+                        <div style={{ fontSize: '0.75em', color: '#666', marginBottom: '4px' }}>
+                          點縮圖加入/移除參考（上限 10，選 {regenPanel.refIndexes.length}）。引用時用 <code>#N</code> = 下方編號。
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))', gap: '4px', maxHeight: '180px', overflowY: 'auto', marginBottom: '6px', padding: '4px', background: '#fff', border: '1px solid #eee', borderRadius: '4px' }}>
+                          {rawCutImages.map((img, i) => {
+                            if (!img || i === idx) return null
+                            const selected = regenPanel.refIndexes.includes(i)
+                            return (
+                              <div
+                                key={i}
+                                onClick={() => toggleRegenRef(i)}
+                                style={{ position: 'relative', cursor: 'pointer', border: selected ? '2px solid #ff9800' : '2px solid #ddd', borderRadius: '4px', overflow: 'hidden', aspectRatio: '1', background: '#fafafa' }}
+                                title={`#${i + 1} ${descriptions[i]?.text || ''}`}
+                              >
+                                <img src={img} alt={`#${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                                <span style={{ position: 'absolute', top: '1px', left: '1px', background: selected ? '#ff9800' : 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: '3px', padding: '0 3px', fontSize: '10px', fontWeight: 'bold' }}>{i + 1}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <textarea
+                          value={regenPanel.extraPrompt}
+                          onChange={(e) => setRegenPanel(prev => prev ? { ...prev, extraPrompt: e.target.value } : prev)}
+                          placeholder="補充 prompt（可用 #2 #5 引用上方勾選的貼圖，例：follow #2 text box style, match #5 pose）"
+                          rows={3}
+                          style={{ width: '100%', fontSize: '0.85em', border: '1px solid #ddd', borderRadius: '4px', padding: '4px 6px', resize: 'vertical', marginBottom: '6px' }}
+                        />
+                        <button
+                          className="btn btn-regen"
+                          style={{ width: '100%', background: '#ff9800', color: '#fff', fontWeight: 'bold' }}
+                          disabled={regeneratingIndex !== null || loading}
+                          onClick={() => {
+                            const opts = { refIndexes: regenPanel.refIndexes, extraPrompt: regenPanel.extraPrompt }
+                            setRegenPanel(null)
+                            handleRegenerateSingleSticker(idx, opts)
+                          }}
+                        >
+                          開始重產
+                        </button>
                       </div>
                     )}
                     {cropAdjustTarget?.stickerIndex === idx && processedGridImages[cropAdjustTarget.gridIndex] && (

@@ -82,6 +82,8 @@ LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→
 3. **依序處理**每則訊息
 4. 處理完一則後，把該則的 `status: pending` 改成 `status: done`
 5. 把回覆寫到 `discord-outbox.md`
+6. **寫完 outbox 後必 call**：`/Users/kafka1125/Documents/project/nekoroni/discord-multi-session/notify-main.sh stampmill "<簡短原因>"`
+   - 不 call 的話主 session 不知道你寫了，outbox 會積著沒 relay
 
 ## discord-inbox.md 格式
 
