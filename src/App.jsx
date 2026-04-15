@@ -1402,7 +1402,31 @@ function App() {
 
   // 單組八宮格重產
   const [regeneratingGrid, setRegeneratingGrid] = useState(null)
-  const handleRegenerateGrid = async (gridIndex) => {
+  const [gridRegenPanel, setGridRegenPanel] = useState(null) // { gridIndex, refGridIndexes: [] }
+  const openGridRegenPanel = (gridIndex) => {
+    const candidates = gridImages
+      .map((img, i) => ({ img, i }))
+      .filter(({ img, i }) => i !== gridIndex && img)
+    const maxRef = 10
+    let defaultRefs = []
+    if (candidates.length <= maxRef) {
+      defaultRefs = candidates.map(c => c.i)
+    } else {
+      const step = Math.max(1, Math.floor(candidates.length / maxRef))
+      defaultRefs = candidates.filter((_, i) => i % step === 0).slice(0, maxRef).map(c => c.i)
+    }
+    setGridRegenPanel({ gridIndex, refGridIndexes: defaultRefs })
+  }
+  const toggleGridRegenRef = (i) => {
+    setGridRegenPanel(prev => {
+      if (!prev) return prev
+      const has = prev.refGridIndexes.includes(i)
+      if (has) return { ...prev, refGridIndexes: prev.refGridIndexes.filter(x => x !== i) }
+      if (prev.refGridIndexes.length >= 10) return prev
+      return { ...prev, refGridIndexes: [...prev.refGridIndexes, i] }
+    })
+  }
+  const handleRegenerateGrid = async (gridIndex, opts = {}) => {
     setRegeneratingGrid(gridIndex)
     setProgress(`正在重新生成第 ${gridIndex + 1} 組八宮格...`)
     try {
@@ -1412,13 +1436,15 @@ function App() {
       while (gridStickers.length < 8) {
         gridStickers.push({ description: '空白', text: '　' })
       }
+      const refGridImages = (opts.refGridIndexes && opts.refGridIndexes.length > 0)
+        ? opts.refGridIndexes.map(i => gridImages[i]).filter(Boolean)
+        : gridImages.filter((_, i) => i !== gridIndex)
       const newGridImage = await generateGrid8Image(
         apiKey,
         characterImage,
         gridStickers,
         textStyle || '',
-        // 重產也用「除了自己以外的全部」八宮格當參考（utils 內會做上限保護）
-        gridImages.filter((_, i) => i !== gridIndex),
+        refGridImages,
         stickerSpec,
         { bgColor: chromaKeyBgColor }
       )
@@ -3185,8 +3211,9 @@ function App() {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px' }}>
                         <button
                           className="btn btn-regen"
-                          onClick={() => handleRegenerateGrid(idx)}
+                          onClick={() => openGridRegenPanel(idx)}
                           disabled={regeneratingGrid !== null || loading}
+                          title="重新生成（選參考八宮格）"
                         >
                           {regeneratingGrid === idx ? '...' : '重產'}
                         </button>
@@ -3211,6 +3238,47 @@ function App() {
                           {recutGridIndex === idx ? '...' : '裁切'}
                         </button>
                       </div>
+                      {gridRegenPanel?.gridIndex === idx && (
+                        <div style={{ marginTop: '8px', border: '2px solid #ff9800', borderRadius: '8px', padding: '10px', background: '#fffbf2' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                            <strong style={{ fontSize: '0.9em', color: '#e65100' }}>重產 八宮格 {idx + 1} · 選參考八宮格</strong>
+                            <button className="btn btn-regen" style={{ padding: '2px 8px', fontSize: '0.8em' }} onClick={() => setGridRegenPanel(null)}>取消</button>
+                          </div>
+                          <div style={{ fontSize: '0.75em', color: '#666', marginBottom: '4px' }}>
+                            點縮圖加入/移除參考（上限 10，選 {gridRegenPanel.refGridIndexes.length}）。
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))', gap: '4px', maxHeight: '220px', overflowY: 'auto', marginBottom: '6px', padding: '4px', background: '#fff', border: '1px solid #eee', borderRadius: '4px' }}>
+                            {gridImages.map((g, gi) => {
+                              if (!g || gi === idx) return null
+                              const selected = gridRegenPanel.refGridIndexes.includes(gi)
+                              const thumb = processedGridImages[gi] || g
+                              return (
+                                <div
+                                  key={gi}
+                                  onClick={() => toggleGridRegenRef(gi)}
+                                  style={{ position: 'relative', cursor: 'pointer', border: selected ? '2px solid #ff9800' : '2px solid #ddd', borderRadius: '6px', overflow: 'hidden', background: '#fafafa' }}
+                                  title={`八宮格 ${gi + 1}`}
+                                >
+                                  <img src={thumb} alt={`八宮格 ${gi + 1}`} style={{ width: '100%', height: '72px', objectFit: 'cover' }} />
+                                  <span style={{ position: 'absolute', top: '1px', left: '1px', background: selected ? '#ff9800' : 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: '3px', padding: '0 4px', fontSize: '10px', fontWeight: 'bold' }}>{gi + 1}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <button
+                            className="btn btn-regen"
+                            style={{ width: '100%', background: '#ff9800', color: '#fff', fontWeight: 'bold' }}
+                            disabled={regeneratingGrid !== null || loading}
+                            onClick={() => {
+                              const opts = { refGridIndexes: gridRegenPanel.refGridIndexes }
+                              setGridRegenPanel(null)
+                              handleRegenerateGrid(idx, opts)
+                            }}
+                          >
+                            開始重產
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
