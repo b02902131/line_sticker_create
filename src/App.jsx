@@ -3,7 +3,7 @@ import './App.css'
 import { generateImageDescriptionsWithText, generateTextStyle, generateSingleDescription, generateSingleText, generateSingleDescriptionFromText } from './utils/gemini'
 import { generateCharacter, generateStickerWithText, generateMainImage, generateGrid8Image } from './utils/characterGenerator'
 import { createGrid8, splitGrid8, cropSingleCell, removeBackgroundSimple, removeBackgroundFromPoint, removeBackgroundByColor, pickColorFromImage, createTabFromCharacter, fileToDataURL } from './utils/imageUtils'
-import { downloadAsZip } from './utils/zipDownloader'
+import { downloadAsZip, fitToSize } from './utils/zipDownloader'
 import { saveCharacterImages, loadCharacterImages, deleteCharacterImages, hasCharacterImages } from './utils/imageStore'
 import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
 import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from './utils/stickerSpecs'
@@ -1404,6 +1404,29 @@ function App() {
     } catch (error) {
       console.error('下載失敗:', error)
       alert(`下載失敗: ${error.message}`)
+    }
+  }
+
+  // 單張下載（檔名/尺寸與 zip 內一致）
+  const handleDownloadSingle = async (idx) => {
+    const dataUrl = cutImages[idx]
+    if (!dataUrl) return
+    const isEmoji = stickerSpec?.key === 'emoji'
+    const padLen = isEmoji ? 3 : 2
+    const filename = `${String(idx + 1).padStart(padLen, '0')}.png`
+    const targetW = stickerSpec?.cell?.w
+    const targetH = stickerSpec?.cell?.h
+    try {
+      const fitted = (targetW && targetH) ? await fitToSize(dataUrl, targetW, targetH) : dataUrl
+      const link = document.createElement('a')
+      link.href = fitted
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch (err) {
+      console.error('單張下載失敗', err)
+      alert(`下載失敗: ${err.message}`)
     }
   }
 
@@ -3525,7 +3548,7 @@ function App() {
                         style={{ width: '100%', fontSize: '0.9em', border: '1px solid #ddd', borderRadius: '4px', padding: '3px 6px', resize: 'vertical' }}
                       />
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: '4px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr', gap: '4px' }}>
                       <button
                         className="btn btn-regen"
                         onClick={() => openRegenPanel(idx)}
@@ -3572,6 +3595,13 @@ function App() {
                           }}
                         />
                       </label>
+                      <button
+                        className="btn btn-regen"
+                        onClick={() => handleDownloadSingle(idx)}
+                        title={`下載單張（${stickerSpec?.key === 'emoji' ? String(idx + 1).padStart(3, '0') : String(idx + 1).padStart(2, '0')}.png，${stickerSpec?.cell?.w}×${stickerSpec?.cell?.h}）`}
+                      >
+                        下載
+                      </button>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', width: '100%' }}>
                       <input

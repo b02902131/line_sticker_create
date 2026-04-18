@@ -21,7 +21,7 @@ function dataURLtoBlob(dataUrl) {
 /**
  * 檢查圖片尺寸，不符時以 contain 方式等比縮放到目標尺寸內（不裁切），透明填充
  */
-function fitToSize(dataUrl, targetW, targetH) {
+export function fitToSize(dataUrl, targetW, targetH) {
   return new Promise((resolve) => {
     const img = new Image()
     img.onload = () => {
