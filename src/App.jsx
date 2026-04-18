@@ -2409,22 +2409,28 @@ function App() {
                   </button>
                 )}
 
-                {/* 生成 / 重新生成 */}
-                {(uploadedCharacterImages.length !== 1) && (
-                  <button
-                    className="btn btn-primary"
-                    onClick={characterImage ? handleRegenerateCharacter : handleGenerateCharacter}
-                    disabled={
-                      generatingCharacter ||
-                      (!characterImage && (
-                        !apiKey ||
-                        (!characterDescription.trim() && !theme.trim() && uploadedCharacterImages.length === 0)
-                      ))
-                    }
-                  >
-                    {generatingCharacter ? '生成中...' : (characterImage ? '重新生成' : '生成角色')}
-                  </button>
-                )}
+                {/* 生成 / 重新生成
+                    單張上傳且未生成過（history 空）時：characterImage 是 raw 上傳，按鈕當「生成角色」用（把上傳當 ref 丟 generate），不走 Regenerate（會清圖）。
+                    這樣單張上傳的使用者可「直接儲存」(右側按鈕) 或「生成」(此按鈕)。 */}
+                {(() => {
+                  const isRawUpload = uploadedCharacterImages.length === 1 && characterImageHistory.length === 0
+                  const isGenerated = !!characterImage && !isRawUpload
+                  return (
+                    <button
+                      className="btn btn-primary"
+                      onClick={isGenerated ? handleRegenerateCharacter : handleGenerateCharacter}
+                      disabled={
+                        generatingCharacter ||
+                        (!isGenerated && (
+                          !apiKey ||
+                          (!characterDescription.trim() && !theme.trim() && uploadedCharacterImages.length === 0)
+                        ))
+                      }
+                    >
+                      {generatingCharacter ? '生成中...' : (isGenerated ? '重新生成' : '生成角色')}
+                    </button>
+                  )
+                })()}
               </div>
 
               {/* 生成歷史 */}

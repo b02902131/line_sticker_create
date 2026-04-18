@@ -3,25 +3,42 @@
 ## Project Overview
 LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。
 
-## Handoff — 2026-04-19
+## Handoff — 2026-04-19 (pm, Discord-triggered)
+
+### Branch: `main`
+
+### What was done
+- **角色建立頁單張上傳 ref 可生成** (closes TODO ❓)
+  - bug：`src/App.jsx` L2413 原本有 `{(uploadedCharacterImages.length !== 1) && ...生成按鈕...}` — 單張上傳時生成按鈕消失
+  - 同時 L675 單張上傳會 `setCharacterImage(all[0])` 讓 `characterImage` 為真，即便按鈕顯示也會變成「重新生成」而非「生成」
+  - fix：新增 `isRawUpload = (uploadedCharacterImages.length === 1 && characterImageHistory.length === 0)` 判定；`isGenerated = characterImage && !isRawUpload` 控制按鈕 label 與 onClick；移除 `length !== 1` gate
+  - 結果：單張上傳時「儲存角色」+「生成角色」兩顆按鈕並存；按生成會把上傳圖當 ref 丟給 `generateCharacter`
+
+### Current state
+- `npm run build` 通過，406.52 kB bundle，main push 完
+- local repo：TODOs.md 項目勾 `[x]` + 三行摘要、commit push
+- 無 [待驗證] 新增；原 0415 [待驗證] 兩項仍等 deploy
+
+### What's next
+- deploy 驗證 0415 單圖重產 ref / prompt 一致風格兩項
+- `campaign.md` (local 未追蹤) 若要版控，下次處理
+
+### Key context for next session
+- 角色建立頁 state：`uploadedCharacterImages`（raw 上傳） / `characterImage`（目前預覽）/ `characterImageHistory`（生成過的）
+- 判 raw vs generated：看 `characterImageHistory.length === 0` + 有 upload → raw；反之 generated
+- 生成按鈕在 `App.jsx` character-create page 的「角色預覽」區 (~L2412–2434)
+
+---
+
+## Handoff — 2026-04-19 (am, daily-dev auto)
 
 ### Branch: `main`
 
 ### What was done (daily-dev auto)
 - /todos check：比對 local/TODOs.md pending 與 codebase
   - 勾掉「8 宮格分割單張顯示 8 裁切筐 (支援複選/拖曳/縮放)」— 已在 `src/components/GridMultiCropAdjustPanel.jsx` 實作
-  - 「一張圖也要可以當參考圖生成」語意模糊，加 ❓ clarification 問使用者要哪個場景 (a) 角色建立 ref 上傳 (b) 單張重產勾 ref (c) 初始批次外部 ref
+  - 「一張圖也要可以當參考圖生成」語意模糊，加 ❓ clarification 問使用者要哪個場景 (a) 角色建立 ref 上傳 (b) 單張重產勾 ref (c) 初始批次外部 ref → 下午 Discord 回覆 (a)，已實裝
 - root repo 無 code 變更；local repo commit + push `todos: 勾 8 宮格 multi-crop 完成 + 一張圖 ref 生成問 clarification`
-
-### Current state
-- root TODOs.md 全空，main 乾淨
-- local/TODOs.md 剩 1 項 pending 卡 ❓、2 項 `[待驗證]` 等 deploy 驗證、Next version section 有 `部署 GitHub Pages` / `研究 line creator API`（daily-dev 不 deploy，跳過）
-- `GridMultiCropAdjustPanel` 支援點選 / Shift+⌘ 複選 / 拖曳 / 滾輪或方向鍵微調 / +− 縮放
-
-### What's next
-- 等使用者回覆「一張圖也要可以當參考圖生成」的 clarification 後再實作
-- 驗證 `[待驗證]` 兩項（單圖重產 style ref）
-- Line creator API 研究（情報室任務，非 StampMill 本體）
 
 ## Handoff — 2026-04-18
 
