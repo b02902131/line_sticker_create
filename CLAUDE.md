@@ -3,32 +3,32 @@
 ## Project Overview
 LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。
 
-## Handoff — 2026-04-16
+## Handoff — 2026-04-18
 
 ### Branch: `main`
 
 ### What was done
-- **8 宮格重產可選參考格**：新增 reference selection panel，重產時可勾選最多 10 格當參考（風格對齊）
-- **多格裁切微調面板**：新增 `GridMultiCropAdjustPanel` 元件，可同時批次調整多格的 offset + zoom
-- **local/ 資料更新**：大臉攻擊2/喵喵圖鑑 listing 修正（標題、說明、欄位順序）、template 統一語系欄位排序、schedule typo fix、工時紀錄
+- **單張圖下載**：每張貼圖新增「下載」按鈕，下載的檔名（`01.png`/`001.png`）與尺寸（`spec.cell.w × spec.cell.h`）與 ZIP 內容一致
+- `fitToSize` 從 `zipDownloader.js` 改為 export，`App.jsx` 直接 import 使用
+- 貼圖格子按鈕列由 5 欄擴為 6 欄
 
 ### Current state
-- build OK，主 repo 乾淨（已 push），`local/` 已 commit + push
-- 8 宮格流程完整：自選底色 → 逐組生成/確認 → 重產可選參考 → 批次裁切微調
-- 單圖重產（RegenPanel）已 deploy，待驗證風格對齊效果
+- build OK，main 已 push
+- TODOs 全空（0416 兩項皆 done）
+- 端到端流程完整：角色設定 → AI 生成 → 去背 → 裁切微調 → 單張下載 / ZIP 打包
 
 ### What's next
-- 驗證「單圖重產」：勾 ref + `#N` 引用 + extraPrompt，確認風格對齊效果
-- 統一可愛動物村名稱跟翻譯（40 狗勾 + 喵喵圖鑑 listing 中英對照）— TODOs 已列
-- 8 宮格分割 UI 改善：直接在八宮格圖上顯示 8 個裁切框，每個可獨立縮放/移動
+- 無待辦。可考慮：
+  - 驗證「單圖重產」風格對齊效果（勾 ref + `#N` + extraPrompt）
+  - 8 宮格分割 UI 改善：在八宮格上直接顯示 8 個裁切框，各自可縮放/移動
+  - 統一可愛動物村名稱與中英對照（40 狗勾 + 喵喵圖鑑 listing）
 
 ### Key context for next session
-- `src/components/GridMultiCropAdjustPanel.jsx`：新元件，批次調整多格裁切（offset + zoom）
-- `src/App.jsx`：Step 7 整合了 reference selection（重產勾選參考格）+ GridMultiCropAdjustPanel
-- `src/utils/characterGenerator.js`：`generateGrid8Image` 的 `opts.bgColor` 控制底色
-- `src/utils/imageUtils.js`：`removeBackgroundSimple` 第 4 參數 `opts.bgColor` 指定去背色
-- dev server 需要 Node.js 20.19+（`nvm use 20.19.0`），Vite 7 需要
-- `local/` 是獨立 git repo（`stampmill-local`），`vite-plugin-local-save.js` 的 `DATA_DIR = path.resolve('local/data')`
+- `src/utils/zipDownloader.js`：`fitToSize` 已 export，`downloadAsZip` + `fitToSize` 都可直接 import
+- `src/App.jsx`：`handleDownloadSingle(idx)` — 單張下載 handler，在 `handleDownload` 下方
+- 貼圖格子按鈕：重產 / 去背 / 選去 / 微調 / 上傳 / 下載（6 欄）
+- dev server 需要 Node.js 20+（`node --version` 確認），Vite 7
+- `local/` 是獨立 git repo（`stampmill-local`），外層 public repo 排除
 
 ---
 
