@@ -3,6 +3,26 @@
 ## Project Overview
 LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。
 
+## Handoff — 2026-04-19
+
+### Branch: `main`
+
+### What was done (daily-dev auto)
+- /todos check：比對 local/TODOs.md pending 與 codebase
+  - 勾掉「8 宮格分割單張顯示 8 裁切筐 (支援複選/拖曳/縮放)」— 已在 `src/components/GridMultiCropAdjustPanel.jsx` 實作
+  - 「一張圖也要可以當參考圖生成」語意模糊，加 ❓ clarification 問使用者要哪個場景 (a) 角色建立 ref 上傳 (b) 單張重產勾 ref (c) 初始批次外部 ref
+- root repo 無 code 變更；local repo commit + push `todos: 勾 8 宮格 multi-crop 完成 + 一張圖 ref 生成問 clarification`
+
+### Current state
+- root TODOs.md 全空，main 乾淨
+- local/TODOs.md 剩 1 項 pending 卡 ❓、2 項 `[待驗證]` 等 deploy 驗證、Next version section 有 `部署 GitHub Pages` / `研究 line creator API`（daily-dev 不 deploy，跳過）
+- `GridMultiCropAdjustPanel` 支援點選 / Shift+⌘ 複選 / 拖曳 / 滾輪或方向鍵微調 / +− 縮放
+
+### What's next
+- 等使用者回覆「一張圖也要可以當參考圖生成」的 clarification 後再實作
+- 驗證 `[待驗證]` 兩項（單圖重產 style ref）
+- Line creator API 研究（情報室任務，非 StampMill 本體）
+
 ## Handoff — 2026-04-18
 
 ### Branch: `main`
