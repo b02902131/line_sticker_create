@@ -3,32 +3,47 @@
 ## Project Overview
 LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。
 
+## Handoff — 2026-04-19 (daily-dev auto, night)
+
+### Branch: `main`
+
+### What was done
+- `/todos tidy`：local/TODOs.md 已是昨日 tidy 完的兩段結構，無需改動
+- `/todos check`：pending 5 項全部 blocked
+  - 2 項 `[待驗證]` 等 gh-pages 手機手測（單圖重產優化 / 文字風格一致）
+  - 2 項 `[~]` 有 ❓ clarification 等 user 回答（字體配色強制規格 / 樣式提示 UI）
+  - 1 項 research-only「LINE creator API 自動上架」→ 以 WebSearch 研究完並勾掉
+- `/todos do next`：研究 LINE Creators Market API
+  - 結論：**無公開自動上架 API**。creator.line.me 只有手動 web portal（New Submission → 42 張圖）。相關 LINE API (Messaging sticker / LINE Notify / Mission Sticker) 都是消費端不是發布端
+  - 自動化邊界：StampMill 只能到「產圖 + 輸出 zip」，上架仍需手動
+
+### Current state
+- 主 repo：無 code 變更、無 deploy 需要
+- local repo：TODOs.md 勾掉 line creator API 項 + 3 行 research 摘要，commit + push 待辦
+- pending 4 項全部 blocked 等 user input / 手測
+
+### What's next
+- User 回答 TODOs 2 項 ❓：字體配色是否升級強制規格 / 「樣式提示」具體 UI
+- 手機手測驗證 0415 單圖重產 + 風格一致兩個 [待驗證] 項目
+- `campaign.md`（local 未追蹤）若要版控，下次處理
+
+### Key context for next session
+- 手機測試 URL：`https://b02902131.github.io/StampMill/`（gh-pages 0419 deploy）
+- LINE Creators Market：自動上架 **不可行**，自動化終點止於本地 zip 輸出
+- deploy 指令：`npm run deploy`（先 predeploy build → gh-pages -d dist）
+
+---
+
 ## Handoff — 2026-04-19 (daily-dev auto, evening)
 
 ### Branch: `main`
 
 ### What was done
-- `/todos tidy`（local/TODOs.md）：原本 checked/unchecked 混雜無結構，改整成「## 待辦（未排期） / --- / ## done（MMDD 分組）」標準格式；done 依 git log 推斷日期（0328 初始、0401、0403、0406、0410、0411、0416、0418、0419）
+- `/todos tidy`（local/TODOs.md）：原本 checked/unchecked 混雜無結構，改整成「## 待辦（未排期） / --- / ## done（MMDD 分組）」標準格式
 - `/todos check`：比對 pending 與 codebase
   - 勾掉「單張貼圖可以丟參考圖作為補充」— `src/App.jsx` L2097 `regenPanel` state 已支援 refIndexes + extraPrompt（0415 實裝）
   - 勾掉「部署到 GitHub Pages」— gh-pages branch 存在、`npm run deploy` script 設定好
-  - 兩項 `[~]` 加 ❓ clarification（字體配色規格 / 未填樣式提示 UI）
-- `/todos do next`：執行 `npm run deploy` — 距上次 deploy（0415）已有 7 個 commit 未上線（含今日單張 ref 按鈕 fix、multi-crop panel、8 宮格逐組生成、RegenPanel 等），deploy 完成 "Published"
-
-### Current state
-- 主 repo：無 code 變更，gh-pages 推完最新 bundle（406.52 kB）
-- local repo：TODOs.md 重整 + commit + push
-- 手機端 gh-pages URL 現在可測 0419 單張 ref 按鈕修正 + 0418 multi-crop + 0416 8 宮格逐組生成
-
-### What's next
-- User 回答 TODOs 2 項 ❓：字體配色是否升級強制規格 / 「樣式提示」具體 UI
-- deploy 後手測驗證 0415 單圖重產 + 風格一致兩個 [待驗證] 項目
-- 消化 `campaign.md`（local 未追蹤，依舊懸著）
-
-### Key context for next session
-- 手機測試 URL：`https://b02902131.github.io/StampMill/`（gh-pages 0419 deploy）
-- deploy 指令：`npm run deploy`（先 predeploy build → gh-pages -d dist）
-- 單張貼圖 ref 參考：`regenPanel` state（App.jsx L2097）— 已可選 refIndexes + extraPrompt + `#N` 編號引用
+- `/todos do next`：執行 `npm run deploy` — 距上次 deploy（0415）已有 7 個 commit 未上線，deploy 完成
 
 ---
 
