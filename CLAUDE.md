@@ -1,7 +1,47 @@
 # StampMill
 
 ## Project Overview
-LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。
+LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片（也支援 gpt-image-2）。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。Outputs go/nogo sticker images, zip downloads.
+
+## Handoff — 2026-04-24
+
+### Branch: `main`
+
+### What was done (本次重構 session)
+- refactor: extract CropAdjustPanel to components/
+- refactor: extract TabCropper to components/
+- refactor: extract useSingleImageEditor hook for main/tab image logic
+- refactor: extract useGridEditor hook for 8-grid image logic
+- refactor: extract useStickerEditor hook for single-sticker regen/bg-remove
+- refactor: extract useDescriptionsEditor hook + StickerPreviewGrid component
+- refactor: extract useAnimationEditor hook
+- refactor: extract useClickRemoveEditor hook for click-to-remove-bg logic
+- refactor: split imageUtils into focused modules (bgRemoval.js, canvasUtils.js, barrel re-export in imageUtils.js)
+- App.jsx: 4225 → 2876 lines (-32%, -1349 lines)
+- Maintainability score: 62 → 92
+
+### Current state
+- Extracted components: CropAdjustPanel, TabCropper, GridMultiCropAdjustPanel, StickerPreviewGrid
+- Extracted hooks: useSingleImageEditor, useGridEditor, useStickerEditor, useDescriptionsEditor, useClickRemoveEditor, useAnimationEditor
+- imageUtils split into: bgRemoval.js, canvasUtils.js (barrel re-export in imageUtils.js)
+- App.jsx still has: large JSX render sections (not yet split into pages)
+- All hooks use `generateFn` injection pattern (same as useSingleImageEditor)
+- Backward-compatible aliases kept in App.jsx for all hook state — save/load paths unchanged
+
+### What's next
+- **JSX page split** (highest CP remaining): extract StickerProducePage, CharacterCreatePage, HomePage JSX sections from App.jsx into src/pages/. State stays in App(), props passed down. Would bring App.jsx from ~2876 → ~400 lines.
+- Props-passing approach (no Context needed — hooks already encapsulate state)
+- Strategy: one agent per page section, sequential (all touch App.jsx)
+
+### Key context for next session
+- All hooks use `generateFn` injection pattern (same as useSingleImageEditor)
+- Backward-compatible aliases kept in App.jsx for all hook state — save/load paths unchanged
+- REFACTOR_HANDOFF.md has full scoring history and stop-condition rules
+- JSX split approach: move render JSX to src/pages/<PageName>.jsx, keep hooks/state in App(), pass via props
+- deploy 指令：`npm run deploy`（先 predeploy build → gh-pages -d dist）
+- dev server 需要 Node.js 20+，Vite 7
+
+---
 
 ## Handoff — 2026-04-19 (daily-dev auto, night)
 
