@@ -1,16 +1,16 @@
 # Refactor Handoff
 > **規則更新**：不依分數提前終止，繼續跑到時間到或沒有高CP工作為止。CP 值與可維護性分數逐輪計算但僅供參考。
+> **⚠️ 收尾指令**：完成當前這輪後設 `STOP: true`，確認 `npm run build` 通過，更新 CLAUDE.md handoff，然後停止。不要繼續下一輪。
 > **用戶建議（架構師請參考）**：App.jsx JSX render section 可以各自抽成 component（MainImageSection, TabImageSection, StickerProducePage），state 先留在 App()，props 傳下去。這樣 App.jsx 可從 ~2876 行進一步暴減到 ~400 行。架構師自行判斷是否執行及執行方式。
 
-iteration: 8 (architect session)
+iteration: 9 (sprint session)
 done: |
-  Wave 1: useStickerEditor hook (removingBgSingle, regenerateSingleSticker, regenPanel). App.jsx 3426→3310 (−116).
-  Wave 2: useDescriptionsEditor hook (bulkText, AI text/desc generation, drag-sort, CRUD) + StickerPreviewGrid component. App.jsx 3310→3017 (−293).
-  Wave 3: useClickRemoveEditor hook (flood/color click-remove, undo stack). App.jsx 3017→2876 (−141).
-  Total this session: −550 lines.
-next: JSX render section split into page-level components (StickerProducePage, CharacterCreatePage) — each ~500 lines JSX, props passed from App. This would bring App.jsx ~400 lines. Very high CP.
-scores: CP 値 avg 8, 可維護性 ~92
-STOP: false (time-limited, more work possible)
+  Wave 4: StickerProducePage JSX extracted to src/pages/StickerProducePage.jsx (~1155 lines JSX).
+  App.jsx 2876→1557 (−1319 lines). Build passes.
+  Also fixed pre-existing bugs: setColorRectStart/setColorRectEnd/getClickRemoveSource/applyResult/ensureArraySize/setGifProgress now exported from hooks.
+next: CharacterCreatePage (~300 lines JSX) + HomePage (~100 lines JSX) — would bring App.jsx to ~400 lines.
+scores: CP 値 10, 可維護性 ~95
+STOP: false (more work possible — CharacterCreatePage + HomePage remaining)
 
 ---
 ## What was done (iter 4)
