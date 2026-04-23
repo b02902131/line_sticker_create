@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import './App.css'
 import { generateImageDescriptionsWithText, generateTextStyle, generateSingleDescription, generateSingleText, generateSingleDescriptionFromText } from './utils/gemini'
 import { generateCharacter, generateStickerWithText, generateMainImage, generateGrid8Image } from './utils/characterGenerator'
@@ -12,6 +12,7 @@ import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from './utils/stickerSpecs'
 import GridMultiCropAdjustPanel from './components/GridMultiCropAdjustPanel'
 import CropAdjustPanel from './components/CropAdjustPanel'
 import TabCropper from './components/TabCropper'
+import { useSingleImageEditor } from './hooks/useSingleImageEditor'
 
 const LS_KEY = 'stampmill_draft'
 
@@ -205,8 +206,8 @@ function App() {
     setGridImages([])
     setProcessedGridImages([])
     setCutImages([])
-    setMainImage(null)
-    setTabImage(null)
+    mainEditor.reset()
+    tabEditor.reset()
     setBackgroundThreshold(240)
     setChromaKeyBgColor('#333333')
     setCurrentStep(1)
@@ -284,15 +285,10 @@ function App() {
   const [processedGridImages, setProcessedGridImages] = useState([]) // 去背後的8宮格
   const [cutImages, setCutImages] = useState([]) // 裁切後的單張圖片（已去背）
   const [rawCutImages, setRawCutImages] = useState([]) // 裁切後的單張圖片（未去背原圖）
-  const [mainImage, setMainImage] = useState(null) // 主要圖片 240x240
-  const [tabImage, setTabImage] = useState(null) // 標籤圖片 96x74
   const [backgroundThreshold, setBackgroundThreshold] = useState(240) // 去背閾值
   const [chromaKeyBgColor, setChromaKeyBgColor] = useState('#333333') // 8宮格 chroma-key 背景色（#RRGGBB）
   const [confirmEachGrid, setConfirmEachGrid] = useState(true) // 8宮格逐組生成/確認
   const [processingBackground, setProcessingBackground] = useState(false) // 正在處理去背
-  const [regeneratingMain, setRegeneratingMain] = useState(false)
-  const [removingMainBg, setRemovingMainBg] = useState(false)
-  const [rawMainImage, setRawMainImage] = useState(null) // 主要圖片未去背原圖
 
   // 動圖製作
   const [gifModal, setGifModal] = useState(false) // 是否顯示動圖製作 Modal
@@ -300,13 +296,7 @@ function App() {
   const [gifDelay, setGifDelay] = useState(80) // 每幀延遲（1/100 秒），預設 80 = 0.8s
   const [gifGenerating, setGifGenerating] = useState(false)
   const [gifProgress, setGifProgress] = useState('')
-  const [mainThreshold, setMainThreshold] = useState(null) // null = 用全域
-  const [rawTabImage, setRawTabImage] = useState(null) // 標籤圖片未去背原圖
-  const [tabThreshold, setTabThreshold] = useState(null) // null = 用全域
-  const [regeneratingTab, setRegeneratingTab] = useState(false)
-  const [tabCropSource, setTabCropSource] = useState(null) // 選擇裁切來源圖片
   const [tabCropRect, setTabCropRect] = useState(null) // { x, y, w, h }
-  const [mainCropSource, setMainCropSource] = useState(null) // 主要圖片裁切來源
   const [previewBackgroundDark, setPreviewBackgroundDark] = useState(false) // 預覽背景是否為深色（Step 7 用）
   const PREVIEW_BG_COLORS = [
     { color: '#ffffff', label: '白', border: '#ddd' },
@@ -415,6 +405,48 @@ function App() {
     imageProvider === 'openai' ? generateGrid8ImageOpenAI(...args) : generateGrid8Image(...args)
   const genStickerWithText = (...args) =>
     imageProvider === 'openai' ? generateStickerWithTextOpenAI(...args) : generateStickerWithText(...args)
+
+  // ===== useSingleImageEditor hook instances =====
+  const mainEditor = useSingleImageEditor({
+    globalThreshold: backgroundThreshold,
+    generateFn: useCallback(
+      () => genMainImage(activeApiKey, characterImage, theme),
+      [activeApiKey, characterImage, theme, imageProvider] // eslint-disable-line react-hooks/exhaustive-deps
+    ),
+    applyBgOnGenerate: true,
+  })
+
+  const tabEditor = useSingleImageEditor({
+    globalThreshold: backgroundThreshold,
+    generateFn: useCallback(
+      () => createTabFromCharacter(characterImage, backgroundThreshold),
+      [characterImage, backgroundThreshold]
+    ),
+    applyBgOnGenerate: false, // createTabFromCharacter already handles bg removal
+  })
+
+  // Convenience aliases (keep original names where used in the many save/load paths)
+  const mainImage = mainEditor.image
+  const setMainImage = mainEditor.setImage
+  const rawMainImage = mainEditor.rawImage
+  const setRawMainImage = mainEditor.setRawImage
+  const mainThreshold = mainEditor.threshold
+  const setMainThreshold = mainEditor.setThreshold
+  const regeneratingMain = mainEditor.regenerating
+  const removingMainBg = mainEditor.removingBg
+  const mainCropSource = mainEditor.cropSource
+  const setMainCropSource = mainEditor.setCropSource
+
+  const tabImage = tabEditor.image
+  const setTabImage = tabEditor.setImage
+  const rawTabImage = tabEditor.rawImage
+  const setRawTabImage = tabEditor.setRawImage
+  const tabThreshold = tabEditor.threshold
+  const setTabThreshold = tabEditor.setThreshold
+  const regeneratingTab = tabEditor.regenerating
+  const removingTabBg = tabEditor.removingBg
+  const tabCropSource = tabEditor.cropSource
+  const setTabCropSource = tabEditor.setCropSource
 
   // 步驟 4: 生成角色
   const handleGenerateCharacter = async () => {
@@ -1824,22 +1856,8 @@ function App() {
     }
   }
 
-  // 標籤圖片去背
-  const [removingTabBg, setRemovingTabBg] = useState(false)
-  const handleRemoveTabBg = async () => {
-    if (!tabImage) return
-    setRemovingTabBg(true)
-    try {
-      const source = rawTabImage || tabImage
-      const t = tabThreshold ?? backgroundThreshold
-      const processed = await removeBackgroundSimple(source, t, null)
-      setTabImage(processed)
-    } catch (error) {
-      alert(`標籤圖片去背失敗: ${error.message}`)
-    } finally {
-      setRemovingTabBg(false)
-    }
-  }
+  // 標籤圖片去背 — delegated to tabEditor.removeBg
+  const handleRemoveTabBg = tabEditor.removeBg
 
   // 單張貼圖重產
   const [regeneratingIndex, setRegeneratingIndex] = useState(null)
@@ -3022,31 +3040,13 @@ function App() {
                         className="btn btn-secondary btn-inline"
                         style={{ marginTop: '6px' }}
                         disabled={loading || regeneratingMain}
-                        onClick={async () => {
-                          setRegeneratingMain(true)
-                          try {
-                            const mainImg = await genMainImage(activeApiKey, characterImage, theme)
-                            setRawMainImage(mainImg)
-                            const processed = await removeBackgroundSimple(mainImg, backgroundThreshold)
-                            setMainImage(processed)
-                          } catch (err) { alert('重產主要圖片失敗: ' + err.message) }
-                          finally { setRegeneratingMain(false) }
-                        }}
+                        onClick={mainEditor.regenerate}
                       >{regeneratingMain ? '生成中...' : '重產'}</button>
                       <button
                         className="btn btn-secondary btn-inline"
                         style={{ marginTop: '6px' }}
                         disabled={loading || removingMainBg}
-                        onClick={async () => {
-                          setRemovingMainBg(true)
-                          try {
-                            const source = rawMainImage || mainImage
-                            const t = mainThreshold ?? backgroundThreshold
-                            const processed = await removeBackgroundSimple(source, t)
-                            setMainImage(processed)
-                          } catch (err) { alert('主要圖片去背失敗: ' + err.message) }
-                          finally { setRemovingMainBg(false) }
-                        }}
+                        onClick={mainEditor.removeBg}
                       >{removingMainBg ? '處理中...' : '去背'}</button>
                       <button
                         className="btn btn-secondary btn-inline"
@@ -3062,14 +3062,7 @@ function App() {
                           type="file"
                           accept="image/*"
                           style={{ display: 'none' }}
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0]
-                            if (!file) return
-                            const dataUrl = await fileToDataURL(file)
-                            setRawMainImage(dataUrl)
-                            setMainImage(dataUrl)
-                            e.target.value = ''
-                          }}
+                          onChange={mainEditor.handleUpload}
                         />
                       </label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px', width: '100%' }}>
@@ -3093,14 +3086,7 @@ function App() {
                         <button
                           className="btn btn-secondary btn-inline"
                           disabled={loading || regeneratingTab}
-                          onClick={async () => {
-                            setRegeneratingTab(true)
-                            try {
-                              const tab = await createTabFromCharacter(characterImage, backgroundThreshold)
-                              setTabImage(tab)
-                            } catch (err) { alert('重產標籤圖片失敗: ' + err.message) }
-                            finally { setRegeneratingTab(false) }
-                          }}
+                          onClick={tabEditor.regenerate}
                         >{regeneratingTab ? '生成中...' : '重產'}</button>
                         <button
                           className="btn btn-secondary btn-inline"
@@ -3164,8 +3150,8 @@ function App() {
                     targetWidth={240}
                     targetHeight={240}
                     title="裁切主要圖片"
-                    onConfirm={(result) => { setRawMainImage(result); setMainImage(result); setMainCropSource(null) }}
-                    onCancel={() => setMainCropSource(null)}
+                    onConfirm={mainEditor.handleCropConfirm}
+                    onCancel={mainEditor.handleCropCancel}
                   />
                 )}
               </div>
@@ -3201,8 +3187,8 @@ function App() {
                 ) : (
                   <TabCropper
                     imageDataUrl={tabCropSource}
-                    onConfirm={(result) => { setTabImage(result); setTabCropSource(null) }}
-                    onCancel={() => setTabCropSource(null)}
+                    onConfirm={tabEditor.handleCropConfirm}
+                    onCancel={tabEditor.handleCropCancel}
                   />
                 )}
               </div>
