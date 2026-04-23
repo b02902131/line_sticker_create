@@ -2540,7 +2540,7 @@ function App() {
                       disabled={
                         generatingCharacter ||
                         (!isGenerated && (
-                          !apiKey ||
+                          !activeApiKey ||
                           (!characterDescription.trim() && !theme.trim() && uploadedCharacterImages.length === 0)
                         ))
                       }

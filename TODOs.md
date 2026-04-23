@@ -4,7 +4,7 @@ backlogs
 
 ### 0423
 - [x] 1. 研究評估串接 gpt-image-2，研究 api 跟訂閱是否分開，評估費用
-- [] 2. 5月初 研究串接 gpt-image-2 api
+- [x] 2. 5月初 研究串接 gpt-image-2 api
 
 ### 0422
 - [x] 3. 增加製作動圖功能
