@@ -5,7 +5,7 @@ import { generateCharacter, generateStickerWithText, generateMainImage, generate
 import { generateCharacterOpenAI, generateStickerWithTextOpenAI, generateMainImageOpenAI, generateGrid8ImageOpenAI } from './utils/openaiImageGenerator'
 import { createGrid8, splitGrid8, cropSingleCell, removeBackgroundSimple, removeBackgroundFromPoint, removeBackgroundByColor, pickColorFromImage, createTabFromCharacter, fileToDataURL } from './utils/imageUtils'
 import { downloadAsZip, fitToSize } from './utils/zipDownloader'
-import { createAnimatedGif } from './utils/gifEncoder'
+import { createAnimatedApng } from './utils/apngEncoder'
 import { saveCharacterImages, loadCharacterImages, deleteCharacterImages, hasCharacterImages } from './utils/imageStore'
 import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
 import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from './utils/stickerSpecs'
@@ -1453,7 +1453,7 @@ function App() {
     }
   }
 
-  // 動圖（GIF）下載
+  // 動圖（APNG）下載
   const handleOpenGifModal = () => {
     const allIndexes = cutImages.map((img, i) => img ? i : null).filter(i => i !== null)
     setGifSelectedFrames(allIndexes)
@@ -1475,24 +1475,20 @@ function App() {
     setGifGenerating(true)
     setGifProgress('準備中...')
     try {
-      const targetW = stickerSpec?.cell?.w || 370
-      const targetH = stickerSpec?.cell?.h || 320
       const frames = gifSelectedFrames.map(i => cutImages[i]).filter(Boolean)
-      const gifW = Math.min(targetW, 300)
-      const gifH = Math.round(gifW * (targetH / targetW))
-      const blob = await createAnimatedGif(frames, {
-        width: gifW,
-        height: gifH,
+      // LINE 動態貼圖規格：320×270 px，最多 20 幀，最小延遲 0.05s
+      const blob = await createAnimatedApng(frames, {
+        width: 320,
+        height: 270,
         delay: gifDelay,
         loop: 0,
-        transparentBg: true,
         onProgress: (done, total) => setGifProgress(`處理幀 ${done}/${total}...`)
       })
       setGifProgress('下載中...')
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = 'sticker-animation.gif'
+      link.download = 'sticker-animation.png'
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -3856,7 +3852,7 @@ function App() {
                     onClick={handleOpenGifModal}
                     disabled={loading}
                   >
-                    製作動圖 GIF
+                    製作動圖 (APNG)
                   </button>
                 )}
               </div>
@@ -3866,9 +3862,9 @@ function App() {
             {gifModal && (
               <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '90%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
-                  <h3 style={{ margin: '0 0 12px', color: '#333' }}>製作動圖 GIF</h3>
+                  <h3 style={{ margin: '0 0 12px', color: '#333' }}>製作動圖 (APNG)</h3>
                   <p style={{ fontSize: '0.85em', color: '#666', margin: '0 0 12px' }}>
-                    選擇要加入動圖的貼圖幀，設定播放速度後下載。
+                    選擇要加入動圖的貼圖幀，設定播放速度後下載。輸出為 APNG（320×270px），符合 LINE 動態貼圖規格，最多 20 幀。
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: '6px', marginBottom: '16px', maxHeight: '240px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '8px', padding: '8px' }}>
                     {cutImages.map((img, i) => {
@@ -3914,7 +3910,7 @@ function App() {
                       style={{ flex: 1, background: '#7c4dff', color: '#fff', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontSize: '1em', fontWeight: 'bold', opacity: gifGenerating ? 0.6 : 1 }}
                       onClick={handleDownloadGif}
                       disabled={gifGenerating || gifSelectedFrames.length === 0}
-                    >{gifGenerating ? '製作中...' : '下載 GIF'}</button>
+                    >{gifGenerating ? '製作中...' : '下載 APNG'}</button>
                     <button
                       style={{ padding: '10px 18px', background: '#f0f0f0', border: '1px solid #ccc', borderRadius: '8px', cursor: 'pointer', fontSize: '1em' }}
                       onClick={() => { setGifModal(false); setGifProgress('') }}
