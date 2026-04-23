@@ -13,6 +13,7 @@ import GridMultiCropAdjustPanel from './components/GridMultiCropAdjustPanel'
 import CropAdjustPanel from './components/CropAdjustPanel'
 import TabCropper from './components/TabCropper'
 import { useSingleImageEditor } from './hooks/useSingleImageEditor'
+import { useGridEditor } from './hooks/useGridEditor'
 
 const LS_KEY = 'stampmill_draft'
 
@@ -281,10 +282,6 @@ function App() {
   }, [descriptions, selectedCharacter])
 
   // 步驟 6-8: 8宮格生成、去背、裁切
-  const [gridImages, setGridImages] = useState([]) // 8宮格圖片陣列
-  const [processedGridImages, setProcessedGridImages] = useState([]) // 去背後的8宮格
-  const [cutImages, setCutImages] = useState([]) // 裁切後的單張圖片（已去背）
-  const [rawCutImages, setRawCutImages] = useState([]) // 裁切後的單張圖片（未去背原圖）
   const [backgroundThreshold, setBackgroundThreshold] = useState(240) // 去背閾值
   const [chromaKeyBgColor, setChromaKeyBgColor] = useState('#333333') // 8宮格 chroma-key 背景色（#RRGGBB）
   const [confirmEachGrid, setConfirmEachGrid] = useState(true) // 8宮格逐組生成/確認
@@ -447,6 +444,74 @@ function App() {
   const removingTabBg = tabEditor.removingBg
   const tabCropSource = tabEditor.cropSource
   const setTabCropSource = tabEditor.setCropSource
+
+  // ===== useGridEditor hook =====
+  const gridEditor = useGridEditor({
+    generateFn: genGrid8Image,
+    activeApiKey,
+    characterImage,
+    textStyle,
+    backgroundThreshold,
+    chromaKeyBgColor,
+    stickerSpec,
+    descriptions,
+    count,
+    confirmEachGrid,
+    setProgress,
+    setCurrentStep,
+  })
+
+  // Backward-compatible aliases — kept so all save/load/render paths keep working unchanged
+  const gridImages = gridEditor.gridImages
+  const setGridImages = gridEditor.setGridImages
+  const processedGridImages = gridEditor.processedGridImages
+  const setProcessedGridImages = gridEditor.setProcessedGridImages
+  const cutImages = gridEditor.cutImages
+  const setCutImages = gridEditor.setCutImages
+  const rawCutImages = gridEditor.rawCutImages
+  const setRawCutImages = gridEditor.setRawCutImages
+  const stickerHistory = gridEditor.stickerHistory
+  const setStickerHistory = gridEditor.setStickerHistory
+  const stickerThresholds = gridEditor.stickerThresholds
+  const setStickerThresholds = gridEditor.setStickerThresholds
+  const regeneratingGrid = gridEditor.regeneratingGrid
+  const removingBgGrid = gridEditor.removingBgGrid
+  const recutGridIndex = gridEditor.recutGridIndex
+  const recutting = gridEditor.recutting
+  const gridRegenPanel = gridEditor.gridRegenPanel
+  const setGridRegenPanel = gridEditor.setGridRegenPanel
+  const openGridRegenPanel = gridEditor.openGridRegenPanel
+  const toggleGridRegenRef = gridEditor.toggleGridRegenRef
+  const cropAdjustTarget = gridEditor.cropAdjustTarget
+  const setCropAdjustTarget = gridEditor.setCropAdjustTarget
+  const cropAdjustHistory = gridEditor.cropAdjustHistory
+  const setCropAdjustHistory = gridEditor.setCropAdjustHistory
+  const multiCropAdjustTarget = gridEditor.multiCropAdjustTarget
+  const setMultiCropAdjustTarget = gridEditor.setMultiCropAdjustTarget
+  const preCutGridCellPreviews = gridEditor.preCutGridCellPreviews
+  const setPreCutGridCellPreviews = gridEditor.setPreCutGridCellPreviews
+  const preCutPanelOpen = gridEditor.preCutPanelOpen
+  const setPreCutPanelOpen = gridEditor.setPreCutPanelOpen
+  const preCutLoadingGridIndex = gridEditor.preCutLoadingGridIndex
+  const setPreCutLoadingGridIndex = gridEditor.setPreCutLoadingGridIndex
+  const getTotalStickerCount = gridEditor.getTotalStickerCount
+  const getGridCount = gridEditor.getGridCount
+  const getNextGridIndex = gridEditor.getNextGridIndex
+  const getStickerThreshold = gridEditor.getStickerThreshold
+  const getCropAdjust = gridEditor.getCropAdjust
+  const hasAnyCropAdjustInRange = gridEditor.hasAnyCropAdjustInRange
+  const cropGridCellsWithAdjust = gridEditor.cropGridCellsWithAdjust
+  const ensureGridCellsReady = gridEditor.ensureGridCellsReady
+  const ensureStickerReady = gridEditor.ensureStickerReady
+  const generateOneGridAt = gridEditor.generateOneGridAt
+  const handleRegenerateGrid = gridEditor.handleRegenerateGrid
+  const handleRemoveBgGrid = gridEditor.handleRemoveBgGrid
+  const handleRecutSingle = gridEditor.handleRecutSingle
+  const handleRecut = gridEditor.handleRecut
+  const handleOpenCropAdjust = gridEditor.handleOpenCropAdjust
+  const handleCropAdjustConfirm = gridEditor.handleCropAdjustConfirm
+  const handleOpenMultiCropAdjust = gridEditor.handleOpenMultiCropAdjust
+  const handleApplyMultiCropAdjust = gridEditor.handleApplyMultiCropAdjust
 
   // 步驟 4: 生成角色
   const handleGenerateCharacter = async () => {
@@ -750,104 +815,7 @@ function App() {
     setDescriptions(newDescriptions)
   }
 
-  // 步驟 6-8: 生成8宮格、去背、裁切
-  const getTotalStickerCount = () => (descriptions?.length || count || 0)
-  const getGridCount = () => Math.ceil(getTotalStickerCount() / 8)
-  const getNextGridIndex = () => {
-    const gridCount = getGridCount()
-    for (let i = 0; i < gridCount; i++) {
-      if (!gridImages?.[i]) return i
-    }
-    return gridCount
-  }
-
-  const buildGridStickers = (gridIndex) => {
-    const startIndex = gridIndex * 8
-    const endIndex = Math.min(startIndex + 8, getTotalStickerCount())
-    const gridStickers = []
-    for (let i = startIndex; i < endIndex; i++) {
-      gridStickers.push(descriptions[i])
-    }
-    while (gridStickers.length < 8) {
-      gridStickers.push({ description: '空白貼圖', text: '' })
-    }
-    return gridStickers
-  }
-
-  const generateOneGridAt = async (gridIndex, { skipDelay = false } = {}) => {
-    const gridCount = getGridCount()
-    if (gridIndex < 0 || gridIndex >= gridCount) throw new Error('gridIndex 超出範圍')
-
-    if (!skipDelay && gridIndex > 0) {
-      const delay = 3000
-      setProgress(`等待 ${delay / 1000} 秒後生成下一張8宮格（避免 API 過載）...`)
-      await new Promise(resolve => setTimeout(resolve, delay))
-    }
-
-    setProgress(`正在生成第 ${gridIndex + 1}/${gridCount} 張8宮格圖片...`)
-    const gridStickers = buildGridStickers(gridIndex)
-
-    // 直接生成包含8宮格的圖片（有重試 + 指數退避）
-    let gridImage = null
-    let retryCount = 0
-    const maxRetries = 5
-    while (!gridImage && retryCount < maxRetries) {
-      try {
-        gridImage = await genGrid8Image(
-          activeApiKey,
-          characterImage,
-          gridStickers,
-          textStyle || '',
-          // 用「前面全部」八宮格作為風格參考（在 utils 內會做上限保護避免 payload 過大）
-          gridIndex > 0 ? (gridImages.length > 0 ? gridImages : null) : null,
-          stickerSpec,
-          { bgColor: chromaKeyBgColor }
-        )
-      } catch (error) {
-        retryCount++
-        if (retryCount < maxRetries) {
-          const isOverloaded = error.message && (
-            error.message.includes('overloaded') ||
-            error.message.includes('overload') ||
-            error.message.includes('請稍後再試')
-          )
-          const baseDelay = isOverloaded ? 10000 : 5000
-          const delay = baseDelay * Math.pow(2, retryCount - 1)
-          console.warn(`生成8宮格失敗，重試中 (${retryCount}/${maxRetries})...`, error.message)
-          setProgress(`生成8宮格失敗，正在重試 (${retryCount}/${maxRetries})，等待 ${Math.round(delay / 1000)} 秒...`)
-          await new Promise(resolve => setTimeout(resolve, delay))
-        } else {
-          console.error(`生成8宮格失敗，已重試 ${maxRetries} 次:`, error)
-          throw new Error(`生成第 ${gridIndex + 1} 張8宮格失敗（已重試 ${maxRetries} 次）: ${error.message}`)
-        }
-      }
-    }
-
-    if (!gridImage) throw new Error('生成8宮格失敗：未取得圖片')
-
-    // 去背（只處理這一組）
-    setProgress(`正在為第 ${gridIndex + 1}/${gridCount} 張8宮格去背...`)
-    const processed = await removeBackgroundSimple(gridImage, backgroundThreshold, null, { bgColor: chromaKeyBgColor })
-
-    // append / replace
-    setGridImages(prev => {
-      const u = [...prev]
-      u[gridIndex] = gridImage
-      return u
-    })
-    setProcessedGridImages(prev => {
-      const u = [...prev]
-      u[gridIndex] = processed
-      return u
-    })
-
-    setCurrentStep(7)
-    if (confirmEachGrid) {
-      setProgress(`已生成第 ${gridIndex + 1}/${gridCount} 組八宮格。確認 OK 後可按「生成下一組」。`)
-    } else {
-      setProgress('去背完成，請調整去背程度後點擊「下一步」進行裁切')
-    }
-  }
+  // 步驟 6-8: 生成8宮格、去背、裁切 — logic now in useGridEditor, aliases above
 
   const handleGenerateNextGrid = async () => {
     if (!characterImage) {
@@ -1211,280 +1179,6 @@ function App() {
     }
   }
 
-  // 單組八宮格重產
-  const [regeneratingGrid, setRegeneratingGrid] = useState(null)
-  const [gridRegenPanel, setGridRegenPanel] = useState(null) // { gridIndex, refGridIndexes: [] }
-  const openGridRegenPanel = (gridIndex) => {
-    const candidates = gridImages
-      .map((img, i) => ({ img, i }))
-      .filter(({ img, i }) => i !== gridIndex && img)
-    const maxRef = 10
-    let defaultRefs = []
-    if (candidates.length <= maxRef) {
-      defaultRefs = candidates.map(c => c.i)
-    } else {
-      const step = Math.max(1, Math.floor(candidates.length / maxRef))
-      defaultRefs = candidates.filter((_, i) => i % step === 0).slice(0, maxRef).map(c => c.i)
-    }
-    setGridRegenPanel({ gridIndex, refGridIndexes: defaultRefs })
-  }
-  const toggleGridRegenRef = (i) => {
-    setGridRegenPanel(prev => {
-      if (!prev) return prev
-      const has = prev.refGridIndexes.includes(i)
-      if (has) return { ...prev, refGridIndexes: prev.refGridIndexes.filter(x => x !== i) }
-      if (prev.refGridIndexes.length >= 10) return prev
-      return { ...prev, refGridIndexes: [...prev.refGridIndexes, i] }
-    })
-  }
-  const handleRegenerateGrid = async (gridIndex, opts = {}) => {
-    setRegeneratingGrid(gridIndex)
-    setProgress(`正在重新生成第 ${gridIndex + 1} 組八宮格...`)
-    try {
-      const startIdx = gridIndex * 8
-      const endIdx = Math.min(startIdx + 8, descriptions.length)
-      let gridStickers = descriptions.slice(startIdx, endIdx)
-      while (gridStickers.length < 8) {
-        gridStickers.push({ description: '空白', text: '　' })
-      }
-      const refGridImages = (opts.refGridIndexes && opts.refGridIndexes.length > 0)
-        ? opts.refGridIndexes.map(i => gridImages[i]).filter(Boolean)
-        : gridImages.filter((_, i) => i !== gridIndex)
-      const newGridImage = await genGrid8Image(
-        activeApiKey,
-        characterImage,
-        gridStickers,
-        textStyle || '',
-        refGridImages,
-        stickerSpec,
-        { bgColor: chromaKeyBgColor }
-      )
-      const newGridImages = [...gridImages]
-      newGridImages[gridIndex] = newGridImage
-      setGridImages(newGridImages)
-
-      // 重新去背 + 裁切這組
-      const processed = await removeBackgroundSimple(newGridImage, backgroundThreshold, null, { bgColor: chromaKeyBgColor })
-      const newProcessed = [...processedGridImages]
-      newProcessed[gridIndex] = processed
-      setProcessedGridImages(newProcessed)
-
-      const actualCount = endIdx - startIdx
-      let newCuts = null
-      if (actualCount > 0 && hasAnyCropAdjustInRange(startIdx, actualCount)) {
-        // processedGridImages 尚未 setState 完，但可直接用 processedSrc 逐格裁
-        const { generateCell, cell } = stickerSpec
-        newCuts = []
-        for (let i = 0; i < 8; i++) {
-          const row = Math.floor(i / 2)
-          const col = i % 2
-          const adj = getCropAdjust(startIdx + i)
-          newCuts.push(await cropSingleCell(processed, row, col, generateCell.w, generateCell.h, cell.w, cell.h, adj.x, adj.y, adj.zoom))
-        }
-      } else {
-        newCuts = await splitGrid8(processed, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-      }
-      const updatedCutImages = [...cutImages]
-      for (let i = 0; i < actualCount; i++) {
-        updatedCutImages[startIdx + i] = newCuts[i]
-      }
-      setCutImages(updatedCutImages)
-
-      setProgress(`第 ${gridIndex + 1} 組八宮格已重新生成`)
-    } catch (error) {
-      console.error('重新生成八宮格失敗:', error)
-      alert(`重新生成失敗: ${error.message}`)
-      setProgress('')
-    } finally {
-      setRegeneratingGrid(null)
-    }
-  }
-
-  // 8宮格去背
-  const [removingBgGrid, setRemovingBgGrid] = useState(null)
-  const handleRemoveBgGrid = async (gridIndex) => {
-    setRemovingBgGrid(gridIndex)
-    try {
-      const processed = await removeBackgroundSimple(gridImages[gridIndex], backgroundThreshold, null, { bgColor: chromaKeyBgColor })
-      setProcessedGridImages(prev => {
-        const updated = [...prev]
-        updated[gridIndex] = processed
-        return updated
-      })
-      // 重新裁切這組的 stickers（若有微調裁切 offset/zoom，需套用）
-      const startIdx = gridIndex * 8
-      const totalNeeded = descriptions.length || count
-      const actualCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
-      let cuts = null
-      let rawCuts = null
-      if (actualCount > 0 && hasAnyCropAdjustInRange(startIdx, actualCount)) {
-        cuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: true })
-        rawCuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: false })
-      } else {
-        cuts = await splitGrid8(processed, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-        rawCuts = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-      }
-      setCutImages(prev => {
-        const updated = [...prev]
-        cuts.forEach((cut, i) => {
-          if (startIdx + i < updated.length) {
-            updated[startIdx + i] = cut
-          }
-        })
-        return updated
-      })
-      setRawCutImages(prev => {
-        const updated = [...prev]
-        rawCuts.forEach((cut, i) => {
-          if (startIdx + i < updated.length) {
-            updated[startIdx + i] = cut
-          }
-        })
-        return updated
-      })
-    } catch (error) {
-      alert(`去背失敗: ${error.message}`)
-    } finally {
-      setRemovingBgGrid(null)
-    }
-  }
-
-  // 微調裁切
-  const [cropAdjustTarget, setCropAdjustTarget] = useState(null)
-  const [cropAdjustHistory, setCropAdjustHistory] = useState({}) // { [stickerIdx]: { x, y, zoom } }
-  const [stickerHistory, setStickerHistory] = useState({}) // { [stickerIdx]: [{ raw, processed }] }
-  const [multiCropAdjustTarget, setMultiCropAdjustTarget] = useState(null) // { gridIndex }
-
-  const getCropAdjust = useCallback((stickerIndex) => {
-    const v = cropAdjustHistory?.[stickerIndex]
-    return v ? { x: v.x || 0, y: v.y || 0, zoom: v.zoom || 1 } : { x: 0, y: 0, zoom: 1 }
-  }, [cropAdjustHistory])
-
-  const hasAnyCropAdjustInRange = useCallback((startIdx, count) => {
-    for (let i = 0; i < count; i++) {
-      const v = cropAdjustHistory?.[startIdx + i]
-      if (v && ((v.x || 0) !== 0 || (v.y || 0) !== 0 || (v.zoom || 1) !== 1)) return true
-    }
-    return false
-  }, [cropAdjustHistory])
-
-  const cropGridCellsWithAdjust = useCallback(async (gridIndex, { useProcessed = true } = {}) => {
-    const src = useProcessed ? (processedGridImages[gridIndex] || gridImages[gridIndex]) : gridImages[gridIndex]
-    if (!src) throw new Error('找不到對應的八宮格圖片')
-    const { generateCell, cell } = stickerSpec
-    const startIdx = gridIndex * 8
-    const out = []
-    for (let i = 0; i < 8; i++) {
-      const cellRow = Math.floor(i / 2)
-      const cellCol = i % 2
-      const adj = getCropAdjust(startIdx + i)
-      out.push(await cropSingleCell(
-        src,
-        cellRow, cellCol,
-        generateCell.w, generateCell.h,
-        cell.w, cell.h,
-        adj.x, adj.y, adj.zoom
-      ))
-    }
-    return out
-  }, [getCropAdjust, gridImages, processedGridImages, stickerSpec])
-
-  const handleOpenCropAdjust = (stickerIdx) => {
-    const gridIndex = Math.floor(stickerIdx / 8)
-    const cellIndex = stickerIdx % 8
-    const cellRow = Math.floor(cellIndex / 2)
-    const cellCol = cellIndex % 2
-    const prev = cropAdjustHistory[stickerIdx] || { x: 0, y: 0, zoom: 1 }
-    setCropAdjustTarget({ stickerIndex: stickerIdx, gridIndex, cellRow, cellCol, prevOffset: prev })
-  }
-
-  const handleOpenMultiCropAdjust = async (gridIdx) => {
-    // 讓使用者在「裁切前」階段就能一次調整 8 個筐
-    const totalNeeded = descriptions.length || count
-    const startIdx = gridIdx * 8
-    const visibleCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
-    if (visibleCount === 0) return
-    try {
-      await ensureGridCellsReady(gridIdx, { alsoCachePreviews: true })
-      setMultiCropAdjustTarget({ gridIndex: gridIdx })
-    } catch (e) {
-      alert('開啟批次微調失敗: ' + e.message)
-    }
-  }
-
-  const handleApplyMultiCropAdjust = async (gridIdx, cellsForGrid) => {
-    const totalNeeded = descriptions.length || count
-    const startIdx = gridIdx * 8
-    const visibleCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
-    if (visibleCount === 0) { setMultiCropAdjustTarget(null); return }
-
-    const { generateCell, cell } = stickerSpec
-    const processedSrc = processedGridImages[gridIdx] || gridImages[gridIdx]
-    const rawSrc = gridImages[gridIdx]
-
-    // 1) 更新 offset/zoom 記錄
-    setCropAdjustHistory(prev => {
-      const u = { ...(prev || {}) }
-      for (let i = 0; i < visibleCount; i++) {
-        const stickerIndex = startIdx + i
-        const v = cellsForGrid[i] || { x: 0, y: 0, zoom: 1 }
-        u[stickerIndex] = { x: v.x || 0, y: v.y || 0, zoom: v.zoom || 1 }
-      }
-      return u
-    })
-
-    // 2) 立刻重新裁切這組（確保畫面預覽與下載結果一致）
-    try {
-      const newCuts = []
-      const newRaws = []
-      for (let i = 0; i < visibleCount; i++) {
-        const row = Math.floor(i / 2)
-        const col = i % 2
-        const v = cellsForGrid[i] || { x: 0, y: 0, zoom: 1 }
-        newCuts.push(await cropSingleCell(processedSrc, row, col, generateCell.w, generateCell.h, cell.w, cell.h, v.x || 0, v.y || 0, v.zoom || 1))
-        newRaws.push(await cropSingleCell(rawSrc, row, col, generateCell.w, generateCell.h, cell.w, cell.h, v.x || 0, v.y || 0, v.zoom || 1))
-      }
-      setCutImages(prev => {
-        const u = ensureArraySize(prev, totalNeeded)
-        for (let i = 0; i < visibleCount; i++) u[startIdx + i] = newCuts[i]
-        return u
-      })
-      setRawCutImages(prev => {
-        const u = ensureArraySize(prev, totalNeeded)
-        for (let i = 0; i < visibleCount; i++) u[startIdx + i] = newRaws[i]
-        return u
-      })
-      setPreCutGridCellPreviews(prev => ({ ...(prev || {}), [gridIdx]: newCuts }))
-    } catch (e) {
-      alert('套用批次微調後裁切失敗: ' + e.message)
-    } finally {
-      setMultiCropAdjustTarget(null)
-    }
-  }
-
-  const handleCropAdjustConfirm = async (offsetX, offsetY, zoom = 1) => {
-    if (!cropAdjustTarget) return
-    const { stickerIndex, gridIndex, cellRow, cellCol } = cropAdjustTarget
-    const { generateCell, cell } = stickerSpec
-
-    // 記住這次的位置
-    setCropAdjustHistory(prev => ({ ...prev, [stickerIndex]: { x: offsetX, y: offsetY, zoom } }))
-
-    // 從去背後的 grid 裁切
-    const newCut = await cropSingleCell(
-      processedGridImages[gridIndex], cellRow, cellCol,
-      generateCell.w, generateCell.h, cell.w, cell.h, offsetX, offsetY, zoom
-    )
-    // 從原圖也裁切
-    const newRaw = await cropSingleCell(
-      gridImages[gridIndex], cellRow, cellCol,
-      generateCell.w, generateCell.h, cell.w, cell.h, offsetX, offsetY, zoom
-    )
-    setCutImages(prev => { const u = [...prev]; u[stickerIndex] = newCut; return u })
-    setRawCutImages(prev => { const u = [...prev]; u[stickerIndex] = newRaw; return u })
-    setCropAdjustTarget(null)
-  }
-
   // 點擊去背
   const [clickRemoveTarget, setClickRemoveTarget] = useState(null) // { index, type } type: 'sticker' | 'main' | 'tab'
   const [clickRemoveThreshold, setClickRemoveThreshold] = useState(30)
@@ -1622,94 +1316,7 @@ function App() {
 
   // 單張去背
   const [removingBgIndex, setRemovingBgIndex] = useState(null)
-  const [stickerThresholds, setStickerThresholds] = useState({}) // per-sticker 閾值
-  const getStickerThreshold = (idx) => stickerThresholds[idx] ?? backgroundThreshold
-
-  // 裁切前（只有八宮格時）也能對單格操作：需要時才從 grid 即時裁出單張，寫回 cutImages/rawCutImages
-  const [preCutGridCellPreviews, setPreCutGridCellPreviews] = useState({}) // { [gridIndex]: string[] } from processedGrid
-  const [preCutPanelOpen, setPreCutPanelOpen] = useState({}) // { [gridIndex]: boolean }
-  const [preCutLoadingGridIndex, setPreCutLoadingGridIndex] = useState(null) // gridIndex | null
-
-  const ensureArraySize = (arr, n) => {
-    const u = Array.isArray(arr) ? [...arr] : []
-    while (u.length < n) u.push(null)
-    return u
-  }
-
-  const ensureGridCellsReady = async (gridIndex, { alsoCachePreviews = false } = {}) => {
-    if (!gridImages[gridIndex]) throw new Error('找不到對應的八宮格圖片')
-    const totalNeeded = descriptions.length || count
-    const startIdx = gridIndex * 8
-    const endIdx = Math.min(startIdx + 8, totalNeeded)
-
-    const visibleCount = endIdx - startIdx
-    const useAdjust = visibleCount > 0 && hasAnyCropAdjustInRange(startIdx, visibleCount)
-
-    let rawCuts = null
-    let processedCuts = null
-    if (useAdjust) {
-      rawCuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: false })
-      if (processedGridImages[gridIndex]) {
-        processedCuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: true })
-      } else {
-        processedCuts = []
-        for (let i = 0; i < 8; i++) {
-          if (!rawCuts[i]) { processedCuts[i] = null; continue }
-          processedCuts[i] = await removeBackgroundSimple(rawCuts[i], getStickerThreshold(startIdx + i), null, { bgColor: chromaKeyBgColor })
-        }
-      }
-    } else {
-      // raw：從原圖裁切（同時也確保 output 尺寸一致）
-      rawCuts = await splitGrid8(
-        gridImages[gridIndex],
-        stickerSpec.generateCell.w,
-        stickerSpec.generateCell.h,
-        stickerSpec.cell.w,
-        stickerSpec.cell.h
-      )
-      // processed：優先用 processedGridImages 裁切，否則以 rawCuts 單張去背補齊
-      if (processedGridImages[gridIndex]) {
-        processedCuts = await splitGrid8(
-          processedGridImages[gridIndex],
-          stickerSpec.generateCell.w,
-          stickerSpec.generateCell.h,
-          stickerSpec.cell.w,
-          stickerSpec.cell.h
-        )
-      } else {
-        processedCuts = []
-        for (let i = 0; i < 8; i++) {
-          if (!rawCuts[i]) { processedCuts[i] = null; continue }
-          processedCuts[i] = await removeBackgroundSimple(rawCuts[i], getStickerThreshold(startIdx + i), null, { bgColor: chromaKeyBgColor })
-        }
-      }
-    }
-
-    setRawCutImages(prev => {
-      const u = ensureArraySize(prev, totalNeeded)
-      for (let i = 0; i < endIdx - startIdx; i++) u[startIdx + i] = rawCuts[i]
-      return u
-    })
-    setCutImages(prev => {
-      const u = ensureArraySize(prev, totalNeeded)
-      for (let i = 0; i < endIdx - startIdx; i++) u[startIdx + i] = processedCuts[i]
-      return u
-    })
-
-    if (alsoCachePreviews) {
-      setPreCutGridCellPreviews(prev => ({ ...prev, [gridIndex]: processedCuts }))
-    }
-  }
-
-  const ensureStickerReady = async (stickerIndex) => {
-    const totalNeeded = descriptions.length || count
-    if (stickerIndex < 0 || stickerIndex >= totalNeeded) return
-    const hasRaw = !!rawCutImages[stickerIndex]
-    const hasCut = !!cutImages[stickerIndex]
-    if (hasRaw && hasCut) return
-    const gridIndex = Math.floor(stickerIndex / 8)
-    await ensureGridCellsReady(gridIndex)
-  }
+  // stickerThresholds, getStickerThreshold, preCutGridCellPreviews, etc. → from gridEditor aliases above
 
   const handleRemoveBgSingle = async (stickerIndex) => {
     setRemovingBgIndex(stickerIndex)
@@ -1729,74 +1336,7 @@ function App() {
     }
   }
 
-  // 單張重新裁切
-  const [recutGridIndex, setRecutGridIndex] = useState(null)
-  const handleRecutSingle = async (gridIndex) => {
-    setRecutGridIndex(gridIndex)
-    try {
-      const startIdx = gridIndex * 8
-      const totalNeeded = descriptions.length || count
-      const actualCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
-      let cuts = null
-      let rawCuts = null
-      if (actualCount > 0 && hasAnyCropAdjustInRange(startIdx, actualCount)) {
-        cuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: true })
-        rawCuts = await cropGridCellsWithAdjust(gridIndex, { useProcessed: false })
-      } else {
-        const src = processedGridImages[gridIndex] || gridImages[gridIndex]
-        cuts = await splitGrid8(src, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-        rawCuts = await splitGrid8(gridImages[gridIndex], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-      }
-      setCutImages(prev => {
-        const u = [...prev]
-        cuts.forEach((cut, i) => { if (startIdx + i < u.length) u[startIdx + i] = cut })
-        return u
-      })
-      setRawCutImages(prev => {
-        const u = [...prev]
-        rawCuts.forEach((raw, i) => { if (startIdx + i < u.length) u[startIdx + i] = raw })
-        return u
-      })
-    } catch (err) {
-      alert('重新裁切失敗: ' + err.message)
-    } finally {
-      setRecutGridIndex(null)
-    }
-  }
-
-  // 全部重新裁切（從目前的 processedGridImages）
-  const [recutting, setRecutting] = useState(false)
-  const handleRecut = async () => {
-    setRecutting(true)
-    try {
-      let allCut = []
-      let allRaw = []
-      for (let i = 0; i < processedGridImages.length; i++) {
-        const startIdx = i * 8
-        const totalNeeded = descriptions.length || count
-        const actualCount = Math.max(0, Math.min(8, totalNeeded - startIdx))
-        if (actualCount > 0 && hasAnyCropAdjustInRange(startIdx, actualCount)) {
-          const cuts = await cropGridCellsWithAdjust(i, { useProcessed: true })
-          const rawCuts = await cropGridCellsWithAdjust(i, { useProcessed: false })
-          allCut = allCut.concat(cuts)
-          allRaw = allRaw.concat(rawCuts)
-        } else {
-          const src = processedGridImages[i] || gridImages[i]
-          const cuts = await splitGrid8(src, stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-          const rawCuts = await splitGrid8(gridImages[i], stickerSpec.generateCell.w, stickerSpec.generateCell.h, stickerSpec.cell.w, stickerSpec.cell.h)
-          allCut = allCut.concat(cuts)
-          allRaw = allRaw.concat(rawCuts)
-        }
-      }
-      const totalNeeded = descriptions.length || count
-      setCutImages(allCut.slice(0, totalNeeded))
-      setRawCutImages(allRaw.slice(0, totalNeeded))
-    } catch (err) {
-      alert('重新裁切失敗: ' + err.message)
-    } finally {
-      setRecutting(false)
-    }
-  }
+  // handleRecutSingle, handleRecut, recutGridIndex, recutting → from gridEditor aliases above
 
   // 批次重新去背（用於調整閾值後）
   const handleReapplyBackground = async () => {
