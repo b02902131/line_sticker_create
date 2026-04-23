@@ -11,10 +11,12 @@ import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, s
 import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from './utils/stickerSpecs'
 import GridMultiCropAdjustPanel from './components/GridMultiCropAdjustPanel'
 import CropAdjustPanel from './components/CropAdjustPanel'
+import { StickerPreviewGrid } from './components/StickerPreviewGrid'
 import TabCropper from './components/TabCropper'
 import { useSingleImageEditor } from './hooks/useSingleImageEditor'
 import { useGridEditor } from './hooks/useGridEditor'
 import { useStickerEditor } from './hooks/useStickerEditor'
+import { useDescriptionsEditor } from './hooks/useDescriptionsEditor'
 
 const LS_KEY = 'stampmill_draft'
 
@@ -540,6 +542,40 @@ function App() {
   const toggleRegenRef = stickerEditor.toggleRegenRef
   const handleRegenerateSingleSticker = stickerEditor.handleRegenerateSingleSticker
 
+  // ===== useDescriptionsEditor hook =====
+  const descriptionsEditor = useDescriptionsEditor({
+    apiKey,
+    theme,
+    characterDescription,
+    characterStance,
+    textStyle,
+    setTextStyle,
+    descriptions,
+    setDescriptions,
+    count,
+    setCount,
+    setProgress,
+  })
+  const bulkText = descriptionsEditor.bulkText
+  const setBulkText = descriptionsEditor.setBulkText
+  const handleImportBulkText = descriptionsEditor.handleImportBulkText
+  const handleInitDescriptions = descriptionsEditor.handleInitDescriptions
+  const generatingSingle = descriptionsEditor.generatingSingle
+  const handleGenerateSingle = descriptionsEditor.handleGenerateSingle
+  const generatingText = descriptionsEditor.generatingText
+  const handleGenerateText = descriptionsEditor.handleGenerateText
+  const generatingDesc = descriptionsEditor.generatingDesc
+  const handleGenerateDesc = descriptionsEditor.handleGenerateDesc
+  const batchGeneratingDesc = descriptionsEditor.batchGeneratingDesc
+  const handleBatchGenerateDesc = descriptionsEditor.handleBatchGenerateDesc
+  const handleDeleteDescription = descriptionsEditor.handleDeleteDescription
+  const handleUpdateDescription = descriptionsEditor.handleUpdateDescription
+  const handleExportDescriptions = descriptionsEditor.handleExportDescriptions
+  const dragIdx = descriptionsEditor.dragIdx
+  const handleDragStart2 = descriptionsEditor.handleDragStart2
+  const handleDragOver2 = descriptionsEditor.handleDragOver2
+  const handleDrop2 = descriptionsEditor.handleDrop2
+
   // 步驟 4: 生成角色
   const handleGenerateCharacter = async () => {
     if (!activeApiKey.trim()) {
@@ -675,172 +711,7 @@ function App() {
     }
   }
 
-  // 初始化空的描述列表
-  const handleInitDescriptions = () => {
-    if (descriptions.length === count) return
-    const items = Array.from({ length: count }, (_, i) => (
-      descriptions[i] || { description: '', text: '' }
-    ))
-    setDescriptions(items)
-  }
-
-  // 從文字清單匯入
-  const [bulkText, setBulkText] = useState('')
-  const handleImportBulkText = () => {
-    const lines = bulkText
-      .split('\n')
-      .map(line => line.replace(/^[-*]\s*\[[ x]?\]\s*/g, '').replace(/^\d+\.\s*/, '').trim()) // 去掉 - [ ] 或編號前綴
-      .filter(line => line.length > 0)
-    if (lines.length === 0) { alert('沒有偵測到文字'); return }
-    const items = lines.map(line => {
-      // 支援「文字：描述」或「文字:描述」格式
-      const colonIdx = line.search(/[：:]/)
-      if (colonIdx !== -1) {
-        return {
-          text: line.slice(0, colonIdx).trim(),
-          description: line.slice(colonIdx + 1).trim()
-        }
-      }
-      return { description: '', text: line }
-    })
-    // 追加模式：跳過已有相同文字的，只加新的
-    const existingTexts = new Set(descriptions.map(d => d.text?.trim()).filter(Boolean))
-    const newItems = items.filter(item => !existingTexts.has(item.text?.trim()))
-    if (newItems.length === 0) { alert('所有文字都已存在，沒有新增'); return }
-    const merged = [...descriptions, ...newItems]
-    setDescriptions(merged)
-    setCount(merged.length)
-    setBulkText('')
-  }
-
-  // 單張生成（文字+描述一起）
-  const [generatingSingle, setGeneratingSingle] = useState(null)
-  const handleGenerateSingle = async (index) => {
-    if (!apiKey.trim()) { alert('請輸入 Gemini API Key'); return }
-    setGeneratingSingle(index)
-    let finalTextStyle = textStyle
-    if (!finalTextStyle.trim()) {
-      try { finalTextStyle = await generateTextStyle(apiKey, theme, characterDescription); setTextStyle(finalTextStyle) }
-      catch { finalTextStyle = '可愛簡潔的風格' }
-    }
-    try {
-      const existingTexts = descriptions.map(d => d.text).filter(Boolean)
-      const item = await generateSingleDescription(apiKey, theme, finalTextStyle, characterDescription, existingTexts, characterStance)
-      const newDescriptions = [...descriptions]
-      newDescriptions[index] = item
-      setDescriptions(newDescriptions)
-    } catch (error) { alert(`生成失敗: ${error.message}`) }
-    finally { setGeneratingSingle(null) }
-  }
-
-  // 單張 AI 生成文字
-  const [generatingText, setGeneratingText] = useState(null)
-  const handleGenerateText = async (index) => {
-    if (!apiKey.trim()) { alert('請輸入 Gemini API Key'); return }
-    setGeneratingText(index)
-    let finalTextStyle = textStyle
-    if (!finalTextStyle.trim()) {
-      try { finalTextStyle = await generateTextStyle(apiKey, theme, characterDescription); setTextStyle(finalTextStyle) }
-      catch { finalTextStyle = '可愛簡潔的風格' }
-    }
-    try {
-      const existingTexts = descriptions.map(d => d.text).filter(Boolean)
-      const text = await generateSingleText(apiKey, theme, finalTextStyle, characterDescription, existingTexts, characterStance)
-      const newDescriptions = [...descriptions]
-      newDescriptions[index] = { ...newDescriptions[index], text }
-      setDescriptions(newDescriptions)
-    } catch (error) { alert(`生成文字失敗: ${error.message}`) }
-    finally { setGeneratingText(null) }
-  }
-
-  // 單張 AI 生成描述（根據已有文字）
-  const [generatingDesc, setGeneratingDesc] = useState(null)
-  const handleGenerateDesc = async (index) => {
-    if (!apiKey.trim()) { alert('請輸入 Gemini API Key'); return }
-    const stickerText = descriptions[index]?.text
-    if (!stickerText?.trim()) { alert('請先填寫文字，AI 會根據文字生成描述'); return }
-    setGeneratingDesc(index)
-    let finalTextStyle = textStyle
-    if (!finalTextStyle.trim()) {
-      try { finalTextStyle = await generateTextStyle(apiKey, theme, characterDescription); setTextStyle(finalTextStyle) }
-      catch { finalTextStyle = '可愛簡潔的風格' }
-    }
-    try {
-      const desc = await generateSingleDescriptionFromText(apiKey, theme, finalTextStyle, characterDescription, stickerText, characterStance)
-      const newDescriptions = [...descriptions]
-      newDescriptions[index] = { ...newDescriptions[index], description: desc }
-      setDescriptions(newDescriptions)
-    } catch (error) { alert(`生成描述失敗: ${error.message}`) }
-    finally { setGeneratingDesc(null) }
-  }
-
-  // 批次 AI 生成空白描述
-  const [batchGeneratingDesc, setBatchGeneratingDesc] = useState(null) // null or '2/5' progress string
-  const handleBatchGenerateDesc = async () => {
-    if (!apiKey.trim()) { alert('請輸入 Gemini API Key'); return }
-    const emptyIndices = descriptions.map((d, i) => (!d.description?.trim() && d.text?.trim()) ? i : -1).filter(i => i !== -1)
-    if (emptyIndices.length === 0) { alert('所有有文字的項目都已有描述'); return }
-    setBatchGeneratingDesc(`0/${emptyIndices.length}`)
-    let finalTextStyle = textStyle
-    if (!finalTextStyle.trim()) {
-      try { finalTextStyle = await generateTextStyle(apiKey, theme, characterDescription); setTextStyle(finalTextStyle) }
-      catch { finalTextStyle = '可愛簡潔的風格' }
-    }
-    const newDescriptions = [...descriptions]
-    for (let i = 0; i < emptyIndices.length; i++) {
-      const idx = emptyIndices[i]
-      setBatchGeneratingDesc(`${i + 1}/${emptyIndices.length}`)
-      setProgress(`正在補齊描述（${i + 1}/${emptyIndices.length}）：第 ${idx + 1} 張「${newDescriptions[idx].text}」...`)
-      try {
-        const desc = await generateSingleDescriptionFromText(apiKey, theme, finalTextStyle, characterDescription, newDescriptions[idx].text, characterStance)
-        newDescriptions[idx] = { ...newDescriptions[idx], description: desc }
-        setDescriptions([...newDescriptions])
-      } catch (error) { console.warn(`描述 ${idx + 1} 生成失敗:`, error.message) }
-    }
-    setProgress('')
-    setBatchGeneratingDesc(null)
-  }
-
-  // 刪除單張
-  const handleDeleteDescription = (index) => {
-    const newDescriptions = descriptions.filter((_, i) => i !== index)
-    setDescriptions(newDescriptions)
-    setCount(newDescriptions.length)
-  }
-
-  // 拖拉排序
-  const [dragIdx, setDragIdx] = useState(null)
-  const handleDragStart2 = (index) => { setDragIdx(index) }
-  const handleDragOver2 = (e, index) => { e.preventDefault() }
-  const handleDrop2 = (index) => {
-    if (dragIdx === null || dragIdx === index) return
-    const items = [...descriptions]
-    const [moved] = items.splice(dragIdx, 1)
-    items.splice(index, 0, moved)
-    setDescriptions(items)
-    setDragIdx(null)
-  }
-
-  // 匯出文字清單
-  const handleExportDescriptions = () => {
-    const text = descriptions.map(d => {
-      if (d.description?.trim()) return `${d.text}：${d.description}`
-      return d.text || ''
-    }).filter(Boolean).join('\n')
-    navigator.clipboard.writeText(text).then(() => {
-      alert(`已複製 ${descriptions.length} 張貼圖文字到剪貼簿`)
-    }).catch(() => {
-      // fallback: 顯示在 textarea 讓使用者手動複製
-      prompt('複製以下內容：', text)
-    })
-  }
-
-  // 更新描述
-  const handleUpdateDescription = (index, field, value) => {
-    const newDescriptions = [...descriptions]
-    newDescriptions[index][field] = value
-    setDescriptions(newDescriptions)
-  }
+  // descriptions handlers → from useDescriptionsEditor aliases above
 
   // 步驟 6-8: 生成8宮格、去背、裁切 — logic now in useGridEditor, aliases above
 
@@ -2720,202 +2591,38 @@ function App() {
             )}
 
             {/* 裁切後的單張預覽 */}
-            <div className="preview-group">
-              <h3>裁切後的貼圖（{cutImages.length} 張）</h3>
-              <div className="sticker-grid">
-                {cutImages.map((img, idx) => (
-                  <div key={idx} className="sticker-item">
-                    <div style={{ position: 'relative', display: 'inline-block' }}>
-                      <img src={img} alt={`貼圖 ${idx + 1}`} className="preview-image sticker-image" style={{ background: previewBgColor }} />
-                      <span style={{ position: 'absolute', top: '2px', left: '2px', background: 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: '4px', padding: '1px 5px', fontSize: '11px', fontWeight: 'bold' }}>{idx + 1}</span>
-                    </div>
-                    <div className="sticker-info" style={{ fontSize: '0.85em' }}>
-                      <input
-                        type="text"
-                        value={descriptions[idx]?.text || ''}
-                        onChange={(e) => setDescriptions(prev => {
-                          const u = [...prev]
-                          u[idx] = { ...u[idx], text: e.target.value }
-                          return u
-                        })}
-                        placeholder="貼圖文字"
-                        style={{ width: '100%', fontWeight: 'bold', fontSize: '1em', border: '1px solid #ddd', borderRadius: '4px', padding: '3px 6px', marginBottom: '4px' }}
-                      />
-                      <textarea
-                        value={descriptions[idx]?.description || ''}
-                        onChange={(e) => setDescriptions(prev => {
-                          const u = [...prev]
-                          u[idx] = { ...u[idx], description: e.target.value }
-                          return u
-                        })}
-                        placeholder="圖片描述"
-                        rows={2}
-                        style={{ width: '100%', fontSize: '0.9em', border: '1px solid #ddd', borderRadius: '4px', padding: '3px 6px', resize: 'vertical' }}
-                      />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr', gap: '4px' }}>
-                      <button
-                        className="btn btn-regen"
-                        onClick={() => openRegenPanel(idx)}
-                        disabled={regeneratingIndex !== null || loading}
-                        title="重新生成（選參考圖 + 自訂 prompt）"
-                      >
-                        {regeneratingIndex === idx ? '...' : '重產'}
-                      </button>
-                      <button
-                        className="btn btn-regen"
-                        onClick={() => handleRemoveBgSingle(idx)}
-                        disabled={removingBgIndex !== null || loading}
-                        title="自動去背"
-                      >
-                        {removingBgIndex === idx ? '...' : '去背'}
-                      </button>
-                      <button
-                        className="btn btn-regen"
-                        onClick={() => { setClickRemoveUndoStack([]); setPickedColor(null); setClickRemoveTarget({ index: idx, type: 'sticker' }) }}
-                        title="點擊指定區域去背"
-                      >
-                        選去
-                      </button>
-                      <button
-                        className="btn btn-regen"
-                        onClick={() => handleOpenCropAdjust(idx)}
-                        title="微調裁切位置"
-                      >
-                        微調
-                      </button>
-                      <label className="btn btn-regen" style={{ cursor: 'pointer', textAlign: 'center' }} title="上傳替換圖片">
-                        上傳
-                        <input
-                          type="file"
-                          accept="image/*"
-                          style={{ display: 'none' }}
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0]
-                            if (!file) return
-                            const dataUrl = await fileToDataURL(file)
-                            setRawCutImages(prev => { const u = [...prev]; u[idx] = dataUrl; return u })
-                            setCutImages(prev => { const u = [...prev]; u[idx] = dataUrl; return u })
-                            e.target.value = ''
-                          }}
-                        />
-                      </label>
-                      <button
-                        className="btn btn-regen"
-                        onClick={() => handleDownloadSingle(idx)}
-                        title={`下載單張（${stickerSpec?.key === 'emoji' ? String(idx + 1).padStart(3, '0') : String(idx + 1).padStart(2, '0')}.png，${stickerSpec?.cell?.w}×${stickerSpec?.cell?.h}）`}
-                      >
-                        下載
-                      </button>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', width: '100%' }}>
-                      <input
-                        type="range"
-                        min="0"
-                        max="255"
-                        value={getStickerThreshold(idx)}
-                        onChange={(e) => setStickerThresholds(prev => ({ ...prev, [idx]: Number(e.target.value) }))}
-                        style={{ flex: 1, height: '4px' }}
-                      />
-                      <span style={{ fontSize: '11px', color: '#999', minWidth: '24px' }}>{getStickerThreshold(idx)}</span>
-                    </div>
-                    {stickerHistory[idx]?.length > 0 && (
-                      <div style={{ marginTop: '6px' }}>
-                        <p style={{ fontSize: '0.75em', color: '#888', margin: '0 0 4px' }}>歷史版本（點擊選用）</p>
-                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                          {stickerHistory[idx].map((ver, vi) => (
-                            <img
-                              key={vi}
-                              src={ver.processed}
-                              alt={`v${vi + 1}`}
-                              onClick={() => {
-                                // 把目前的存進歷史，換成選中的版本
-                                const currentRaw = rawCutImages[idx]
-                                const currentProcessed = cutImages[idx]
-                                setStickerHistory(prev => {
-                                  const h = [...prev[idx]]
-                                  h.splice(vi, 1) // 移除選中的
-                                  h.push({ raw: currentRaw, processed: currentProcessed }) // 把目前的放回去
-                                  return { ...prev, [idx]: h }
-                                })
-                                setRawCutImages(prev => { const u = [...prev]; u[idx] = ver.raw; return u })
-                                setCutImages(prev => { const u = [...prev]; u[idx] = ver.processed; return u })
-                              }}
-                              style={{
-                                width: '48px', height: '48px', objectFit: 'contain', borderRadius: '4px',
-                                border: '2px solid #ddd', cursor: 'pointer', background: '#f5f5f5'
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {regenPanel?.index === idx && (
-                      <div style={{ marginTop: '8px', border: '2px solid #ff9800', borderRadius: '8px', padding: '10px', background: '#fffbf2' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <strong style={{ fontSize: '0.9em', color: '#e65100' }}>重產 #{idx + 1} · 選參考圖 + 補 prompt</strong>
-                          <button className="btn btn-regen" style={{ padding: '2px 8px', fontSize: '0.8em' }} onClick={() => setRegenPanel(null)}>取消</button>
-                        </div>
-                        <div style={{ fontSize: '0.75em', color: '#666', marginBottom: '4px' }}>
-                          點縮圖加入/移除參考（上限 10，選 {regenPanel.refIndexes.length}）。引用時用 <code>#N</code> = 下方編號。
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))', gap: '4px', maxHeight: '180px', overflowY: 'auto', marginBottom: '6px', padding: '4px', background: '#fff', border: '1px solid #eee', borderRadius: '4px' }}>
-                          {rawCutImages.map((img, i) => {
-                            if (!img || i === idx) return null
-                            const selected = regenPanel.refIndexes.includes(i)
-                            return (
-                              <div
-                                key={i}
-                                onClick={() => toggleRegenRef(i)}
-                                style={{ position: 'relative', cursor: 'pointer', border: selected ? '2px solid #ff9800' : '2px solid #ddd', borderRadius: '4px', overflow: 'hidden', aspectRatio: '1', background: '#fafafa' }}
-                                title={`#${i + 1} ${descriptions[i]?.text || ''}`}
-                              >
-                                <img src={img} alt={`#${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                                <span style={{ position: 'absolute', top: '1px', left: '1px', background: selected ? '#ff9800' : 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: '3px', padding: '0 3px', fontSize: '10px', fontWeight: 'bold' }}>{i + 1}</span>
-                              </div>
-                            )
-                          })}
-                        </div>
-                        <textarea
-                          value={regenPanel.extraPrompt}
-                          onChange={(e) => setRegenPanel(prev => prev ? { ...prev, extraPrompt: e.target.value } : prev)}
-                          placeholder="補充 prompt（可用 #2 #5 引用上方勾選的貼圖，例：follow #2 text box style, match #5 pose）"
-                          rows={3}
-                          style={{ width: '100%', fontSize: '0.85em', border: '1px solid #ddd', borderRadius: '4px', padding: '4px 6px', resize: 'vertical', marginBottom: '6px' }}
-                        />
-                        <button
-                          className="btn btn-regen"
-                          style={{ width: '100%', background: '#ff9800', color: '#fff', fontWeight: 'bold' }}
-                          disabled={regeneratingIndex !== null || loading}
-                          onClick={() => {
-                            const opts = { refIndexes: regenPanel.refIndexes, extraPrompt: regenPanel.extraPrompt }
-                            setRegenPanel(null)
-                            handleRegenerateSingleSticker(idx, opts)
-                          }}
-                        >
-                          開始重產
-                        </button>
-                      </div>
-                    )}
-                    {cropAdjustTarget?.stickerIndex === idx && processedGridImages[cropAdjustTarget.gridIndex] && (
-                      <div style={{ marginTop: '8px', border: '2px solid #4CAF50', borderRadius: '8px', padding: '8px', background: '#f9f9f9' }}>
-                        <CropAdjustPanel
-                          gridSrc={processedGridImages[cropAdjustTarget.gridIndex]}
-                          cellRow={cropAdjustTarget.cellRow}
-                          cellCol={cropAdjustTarget.cellCol}
-                          cellW={stickerSpec.generateCell.w}
-                          cellH={stickerSpec.generateCell.h}
-                          initialOffset={cropAdjustTarget.prevOffset ? { x: cropAdjustTarget.prevOffset.x, y: cropAdjustTarget.prevOffset.y } : undefined}
-                          initialZoom={cropAdjustTarget.prevOffset?.zoom}
-                          onConfirm={(ox, oy, z) => handleCropAdjustConfirm(ox, oy, z)}
-                          onCancel={() => setCropAdjustTarget(null)}
-                        />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <StickerPreviewGrid
+              cutImages={cutImages}
+              rawCutImages={rawCutImages}
+              setRawCutImages={setRawCutImages}
+              setCutImages={setCutImages}
+              descriptions={descriptions}
+              setDescriptions={setDescriptions}
+              stickerHistory={stickerHistory}
+              setStickerHistory={setStickerHistory}
+              stickerSpec={stickerSpec}
+              previewBgColor={previewBgColor}
+              getStickerThreshold={getStickerThreshold}
+              setStickerThresholds={setStickerThresholds}
+              removingBgIndex={removingBgIndex}
+              regeneratingIndex={regeneratingIndex}
+              loading={loading}
+              regenPanel={regenPanel}
+              setRegenPanel={setRegenPanel}
+              openRegenPanel={openRegenPanel}
+              toggleRegenRef={toggleRegenRef}
+              handleRegenerateSingleSticker={handleRegenerateSingleSticker}
+              handleRemoveBgSingle={handleRemoveBgSingle}
+              handleOpenCropAdjust={handleOpenCropAdjust}
+              setClickRemoveUndoStack={setClickRemoveUndoStack}
+              setPickedColor={setPickedColor}
+              setClickRemoveTarget={setClickRemoveTarget}
+              cropAdjustTarget={cropAdjustTarget}
+              processedGridImages={processedGridImages}
+              handleCropAdjustConfirm={handleCropAdjustConfirm}
+              setCropAdjustTarget={setCropAdjustTarget}
+              handleDownloadSingle={handleDownloadSingle}
+            />
 
             {/* 下載按鈕 - 只在步驟 9 顯示 */}
             {currentStep === 9 && (stickerSpec.hasMain ? mainImage : true) && (stickerSpec.hasTab ? tabImage : true) && (
