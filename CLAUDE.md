@@ -17,21 +17,22 @@ LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→
 - refactor: extract useAnimationEditor hook
 - refactor: extract useClickRemoveEditor hook for click-to-remove-bg logic
 - refactor: split imageUtils into focused modules (bgRemoval.js, canvasUtils.js, barrel re-export in imageUtils.js)
-- App.jsx: 4225 → 2876 lines (-32%, -1349 lines)
-- Maintainability score: 62 → 92
+- refactor: extract StickerProducePage JSX to pages/ (~1155 lines JSX extracted)
+- App.jsx: 4225 → 1557 lines (-63%, -2668 lines)
+- Maintainability score: 62 → ~95
 
 ### Current state
 - Extracted components: CropAdjustPanel, TabCropper, GridMultiCropAdjustPanel, StickerPreviewGrid
 - Extracted hooks: useSingleImageEditor, useGridEditor, useStickerEditor, useDescriptionsEditor, useClickRemoveEditor, useAnimationEditor
+- Extracted pages: StickerProducePage
 - imageUtils split into: bgRemoval.js, canvasUtils.js (barrel re-export in imageUtils.js)
-- App.jsx still has: large JSX render sections (not yet split into pages)
+- App.jsx still has: CharacterCreatePage (~300 lines JSX) + HomePage (~100 lines JSX)
 - All hooks use `generateFn` injection pattern (same as useSingleImageEditor)
 - Backward-compatible aliases kept in App.jsx for all hook state — save/load paths unchanged
 
 ### What's next
-- **JSX page split** (highest CP remaining): extract StickerProducePage, CharacterCreatePage, HomePage JSX sections from App.jsx into src/pages/. State stays in App(), props passed down. Would bring App.jsx from ~2876 → ~400 lines.
-- Props-passing approach (no Context needed — hooks already encapsulate state)
-- Strategy: one agent per page section, sequential (all touch App.jsx)
+- **CharacterCreatePage** (~300 lines JSX) + **HomePage** (~100 lines JSX) → extract to src/pages/ → App.jsx to ~400 lines
+- refactor-dev agent can be dispatched to continue; reads REFACTOR_HANDOFF.md
 
 ### Key context for next session
 - All hooks use `generateFn` injection pattern (same as useSingleImageEditor)

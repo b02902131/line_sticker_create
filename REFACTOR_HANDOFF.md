@@ -10,7 +10,7 @@ done: |
   Also fixed pre-existing bugs: setColorRectStart/setColorRectEnd/getClickRemoveSource/applyResult/ensureArraySize/setGifProgress now exported from hooks.
 next: CharacterCreatePage (~300 lines JSX) + HomePage (~100 lines JSX) — would bring App.jsx to ~400 lines.
 scores: CP 値 10, 可維護性 ~95
-STOP: false (more work possible — CharacterCreatePage + HomePage remaining)
+STOP: true
 
 ---
 ## What was done (iter 4)
