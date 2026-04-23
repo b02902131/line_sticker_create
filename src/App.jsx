@@ -5,7 +5,6 @@ import { generateCharacter, generateStickerWithText, generateMainImage, generate
 import { generateCharacterOpenAI, generateStickerWithTextOpenAI, generateMainImageOpenAI, generateGrid8ImageOpenAI } from './utils/openaiImageGenerator'
 import { createGrid8, splitGrid8, cropSingleCell, removeBackgroundSimple, removeBackgroundFromPoint, removeBackgroundByColor, pickColorFromImage, createTabFromCharacter, fileToDataURL } from './utils/imageUtils'
 import { downloadAsZip, fitToSize } from './utils/zipDownloader'
-import { createAnimatedApng } from './utils/apngEncoder'
 import { saveCharacterImages, loadCharacterImages, deleteCharacterImages, hasCharacterImages } from './utils/imageStore'
 import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
 import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from './utils/stickerSpecs'
@@ -17,6 +16,7 @@ import { useSingleImageEditor } from './hooks/useSingleImageEditor'
 import { useGridEditor } from './hooks/useGridEditor'
 import { useStickerEditor } from './hooks/useStickerEditor'
 import { useDescriptionsEditor } from './hooks/useDescriptionsEditor'
+import { useAnimationEditor } from './hooks/useAnimationEditor'
 
 const LS_KEY = 'stampmill_draft'
 
@@ -290,12 +290,6 @@ function App() {
   const [confirmEachGrid, setConfirmEachGrid] = useState(true) // 8宮格逐組生成/確認
   const [processingBackground, setProcessingBackground] = useState(false) // 正在處理去背
 
-  // 動圖製作
-  const [gifModal, setGifModal] = useState(false) // 是否顯示動圖製作 Modal
-  const [gifSelectedFrames, setGifSelectedFrames] = useState([]) // 選中的幀 index 陣列
-  const [gifDelay, setGifDelay] = useState(80) // 每幀延遲（1/100 秒），預設 80 = 0.8s
-  const [gifGenerating, setGifGenerating] = useState(false)
-  const [gifProgress, setGifProgress] = useState('')
   const [tabCropRect, setTabCropRect] = useState(null) // { x, y, w, h }
   const [previewBackgroundDark, setPreviewBackgroundDark] = useState(false) // 預覽背景是否為深色（Step 7 用）
   const PREVIEW_BG_COLORS = [
@@ -541,6 +535,20 @@ function App() {
   const openRegenPanel = stickerEditor.openRegenPanel
   const toggleRegenRef = stickerEditor.toggleRegenRef
   const handleRegenerateSingleSticker = stickerEditor.handleRegenerateSingleSticker
+
+  // ===== useAnimationEditor hook =====
+  const animationEditor = useAnimationEditor({ cutImages })
+  const gifModal = animationEditor.gifModal
+  const setGifModal = animationEditor.setGifModal
+  const gifSelectedFrames = animationEditor.gifSelectedFrames
+  const setGifSelectedFrames = animationEditor.setGifSelectedFrames
+  const gifDelay = animationEditor.gifDelay
+  const setGifDelay = animationEditor.setGifDelay
+  const gifGenerating = animationEditor.gifGenerating
+  const gifProgress = animationEditor.gifProgress
+  const handleOpenGifModal = animationEditor.handleOpenGifModal
+  const handleToggleGifFrame = animationEditor.handleToggleGifFrame
+  const handleDownloadGif = animationEditor.handleDownloadGif
 
   // ===== useDescriptionsEditor hook =====
   const descriptionsEditor = useDescriptionsEditor({
@@ -1023,57 +1031,6 @@ function App() {
     } catch (err) {
       console.error('單張下載失敗', err)
       alert(`下載失敗: ${err.message}`)
-    }
-  }
-
-  // 動圖（APNG）下載
-  const handleOpenGifModal = () => {
-    const allIndexes = cutImages.map((img, i) => img ? i : null).filter(i => i !== null)
-    setGifSelectedFrames(allIndexes)
-    setGifModal(true)
-    setGifProgress('')
-  }
-
-  const handleToggleGifFrame = (idx) => {
-    setGifSelectedFrames(prev =>
-      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx].sort((a, b) => a - b)
-    )
-  }
-
-  const handleDownloadGif = async () => {
-    if (gifSelectedFrames.length === 0) {
-      alert('請至少選擇一張圖片')
-      return
-    }
-    setGifGenerating(true)
-    setGifProgress('準備中...')
-    try {
-      const frames = gifSelectedFrames.map(i => cutImages[i]).filter(Boolean)
-      // LINE 動態貼圖規格：320×270 px，最多 20 幀，最小延遲 0.05s
-      const blob = await createAnimatedApng(frames, {
-        width: 320,
-        height: 270,
-        delay: gifDelay,
-        loop: 0,
-        onProgress: (done, total) => setGifProgress(`處理幀 ${done}/${total}...`)
-      })
-      setGifProgress('下載中...')
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = 'sticker-animation.png'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      setTimeout(() => URL.revokeObjectURL(url), 5000)
-      setGifModal(false)
-      setGifProgress('')
-    } catch (err) {
-      console.error('動圖製作失敗', err)
-      alert(`動圖製作失敗: ${err.message}`)
-      setGifProgress('')
-    } finally {
-      setGifGenerating(false)
     }
   }
 
