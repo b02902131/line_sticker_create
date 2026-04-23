@@ -2,8 +2,10 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import './App.css'
 import { generateImageDescriptionsWithText, generateTextStyle, generateSingleDescription, generateSingleText, generateSingleDescriptionFromText } from './utils/gemini'
 import { generateCharacter, generateStickerWithText, generateMainImage, generateGrid8Image } from './utils/characterGenerator'
+import { generateCharacterOpenAI, generateStickerWithTextOpenAI, generateMainImageOpenAI, generateGrid8ImageOpenAI } from './utils/openaiImageGenerator'
 import { createGrid8, splitGrid8, cropSingleCell, removeBackgroundSimple, removeBackgroundFromPoint, removeBackgroundByColor, pickColorFromImage, createTabFromCharacter, fileToDataURL } from './utils/imageUtils'
 import { downloadAsZip, fitToSize } from './utils/zipDownloader'
+import { createAnimatedGif } from './utils/gifEncoder'
 import { saveCharacterImages, loadCharacterImages, deleteCharacterImages, hasCharacterImages } from './utils/imageStore'
 import { syncSaveCharacters, syncLoadCharacters, syncSaveDescs, syncLoadDescs, syncDeleteDescs } from './utils/localSync'
 import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from './utils/stickerSpecs'
@@ -353,6 +355,9 @@ function App() {
 
   // 共用
   const [apiKey, setApiKey] = useState(draft.apiKey || '')
+  const [openaiKey, setOpenaiKey] = useState(draft.openaiKey || '')
+  // imageProvider: 'gemini' | 'openai'
+  const [imageProvider, setImageProvider] = useState(draft.imageProvider || 'gemini')
 
   // 角色設計
   const [characterDescription, setCharacterDescription] = useState(restoredChar?.description || '')
@@ -590,9 +595,9 @@ function App() {
 
   // 自動暫存到 localStorage
   useEffect(() => {
-    const data = { apiKey, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacterId: selectedCharacter?.id }
+    const data = { apiKey, openaiKey, imageProvider, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacterId: selectedCharacter?.id }
     localStorage.setItem(LS_KEY, JSON.stringify(data))
-  }, [apiKey, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacter])
+  }, [apiKey, openaiKey, imageProvider, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacter])
 
   // descriptions by character
   useEffect(() => {
@@ -613,6 +618,13 @@ function App() {
   const [regeneratingMain, setRegeneratingMain] = useState(false)
   const [removingMainBg, setRemovingMainBg] = useState(false)
   const [rawMainImage, setRawMainImage] = useState(null) // 主要圖片未去背原圖
+
+  // 動圖製作
+  const [gifModal, setGifModal] = useState(false) // 是否顯示動圖製作 Modal
+  const [gifSelectedFrames, setGifSelectedFrames] = useState([]) // 選中的幀 index 陣列
+  const [gifDelay, setGifDelay] = useState(80) // 每幀延遲（1/100 秒），預設 80 = 0.8s
+  const [gifGenerating, setGifGenerating] = useState(false)
+  const [gifProgress, setGifProgress] = useState('')
   const [mainThreshold, setMainThreshold] = useState(null) // null = 用全域
   const [rawTabImage, setRawTabImage] = useState(null) // 標籤圖片未去背原圖
   const [tabThreshold, setTabThreshold] = useState(null) // null = 用全域
@@ -718,10 +730,21 @@ function App() {
     return () => window.removeEventListener('paste', handlePaste)
   }, [handleImageFiles])
 
+  // ===== Image provider dispatch helpers =====
+  const activeApiKey = imageProvider === 'openai' ? openaiKey : apiKey
+  const genCharacter = (...args) =>
+    imageProvider === 'openai' ? generateCharacterOpenAI(...args) : generateCharacter(...args)
+  const genMainImage = (...args) =>
+    imageProvider === 'openai' ? generateMainImageOpenAI(...args) : generateMainImage(...args)
+  const genGrid8Image = (...args) =>
+    imageProvider === 'openai' ? generateGrid8ImageOpenAI(...args) : generateGrid8Image(...args)
+  const genStickerWithText = (...args) =>
+    imageProvider === 'openai' ? generateStickerWithTextOpenAI(...args) : generateStickerWithText(...args)
+
   // 步驟 4: 生成角色
   const handleGenerateCharacter = async () => {
-    if (!apiKey.trim()) {
-      alert('請輸入 Gemini API Key')
+    if (!activeApiKey.trim()) {
+      alert(imageProvider === 'openai' ? '請輸入 OpenAI API Key' : '請輸入 Gemini API Key')
       return
     }
     if (!characterDescription.trim() && uploadedCharacterImages.length === 0) {
@@ -733,7 +756,7 @@ function App() {
     setProgress('正在生成角色圖片...')
 
     try {
-      const character = await generateCharacter(apiKey, characterDescription || theme, uploadedCharacterImages, characterDescription)
+      const character = await genCharacter(activeApiKey, characterDescription || theme, uploadedCharacterImages, characterDescription)
       setCharacterImage(character)
       setCharacterImageHistory(prev => [...prev, character])
       setCharacterConfirmed(false) // 需要用戶確認
@@ -1063,8 +1086,8 @@ function App() {
     const maxRetries = 5
     while (!gridImage && retryCount < maxRetries) {
       try {
-        gridImage = await generateGrid8Image(
-          apiKey,
+        gridImage = await genGrid8Image(
+          activeApiKey,
           characterImage,
           gridStickers,
           textStyle || '',
@@ -1233,8 +1256,8 @@ function App() {
         
         while (!gridImage && retryCount < maxRetries) {
           try {
-            gridImage = await generateGrid8Image(
-              apiKey,
+            gridImage = await genGrid8Image(
+              activeApiKey,
               characterImage,
               gridStickers,
               textStyle || '',
@@ -1361,7 +1384,7 @@ function App() {
       // 生成主要圖片（240x240，無文字）— 已有則跳過。表情貼模式不需要主要圖片。
       if (stickerSpec.hasMain && !mainImage) {
         setProgress('正在生成主要圖片（240×240，無文字）...')
-        const mainImg = await generateMainImage(apiKey, characterImage, theme)
+        const mainImg = await genMainImage(activeApiKey, characterImage, theme)
         setRawMainImage(mainImg)
         const mainImgProcessed = await removeBackgroundSimple(mainImg, backgroundThreshold)
         setMainImage(mainImgProcessed)
@@ -1430,6 +1453,61 @@ function App() {
     }
   }
 
+  // 動圖（GIF）下載
+  const handleOpenGifModal = () => {
+    const allIndexes = cutImages.map((img, i) => img ? i : null).filter(i => i !== null)
+    setGifSelectedFrames(allIndexes)
+    setGifModal(true)
+    setGifProgress('')
+  }
+
+  const handleToggleGifFrame = (idx) => {
+    setGifSelectedFrames(prev =>
+      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx].sort((a, b) => a - b)
+    )
+  }
+
+  const handleDownloadGif = async () => {
+    if (gifSelectedFrames.length === 0) {
+      alert('請至少選擇一張圖片')
+      return
+    }
+    setGifGenerating(true)
+    setGifProgress('準備中...')
+    try {
+      const targetW = stickerSpec?.cell?.w || 370
+      const targetH = stickerSpec?.cell?.h || 320
+      const frames = gifSelectedFrames.map(i => cutImages[i]).filter(Boolean)
+      const gifW = Math.min(targetW, 300)
+      const gifH = Math.round(gifW * (targetH / targetW))
+      const blob = await createAnimatedGif(frames, {
+        width: gifW,
+        height: gifH,
+        delay: gifDelay,
+        loop: 0,
+        transparentBg: true,
+        onProgress: (done, total) => setGifProgress(`處理幀 ${done}/${total}...`)
+      })
+      setGifProgress('下載中...')
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'sticker-animation.gif'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      setGifModal(false)
+      setGifProgress('')
+    } catch (err) {
+      console.error('動圖製作失敗', err)
+      alert(`動圖製作失敗: ${err.message}`)
+      setGifProgress('')
+    } finally {
+      setGifGenerating(false)
+    }
+  }
+
   // 單組八宮格重產
   const [regeneratingGrid, setRegeneratingGrid] = useState(null)
   const [gridRegenPanel, setGridRegenPanel] = useState(null) // { gridIndex, refGridIndexes: [] }
@@ -1469,8 +1547,8 @@ function App() {
       const refGridImages = (opts.refGridIndexes && opts.refGridIndexes.length > 0)
         ? opts.refGridIndexes.map(i => gridImages[i]).filter(Boolean)
         : gridImages.filter((_, i) => i !== gridIndex)
-      const newGridImage = await generateGrid8Image(
-        apiKey,
+      const newGridImage = await genGrid8Image(
+        activeApiKey,
         characterImage,
         gridStickers,
         textStyle || '',
@@ -2155,8 +2233,8 @@ function App() {
       const outW = stickerSpec.cell.w
       const outH = stickerSpec.cell.h
 
-      let newStickerDataUrl = await generateStickerWithText(
-        apiKey,
+      let newStickerDataUrl = await genStickerWithText(
+        activeApiKey,
         characterImage,
         desc.description,
         desc.text,
@@ -2224,7 +2302,7 @@ function App() {
         {/* API Key — 所有頁面共用 */}
         <div className="step-section">
           <div className="form-group">
-            <label>Gemini API Key</label>
+            <label>Gemini API Key <span style={{ color: '#888', fontWeight: 'normal', fontSize: '0.85em' }}>(文字生成 / 角色描述必填)</span></label>
             <input
               type="password"
               value={apiKey}
@@ -2233,6 +2311,46 @@ function App() {
               className="form-input"
             />
           </div>
+          <div className="form-group" style={{ marginTop: '10px' }}>
+            <label>圖像生成引擎</label>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '4px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: 'normal' }}>
+                <input
+                  type="radio"
+                  name="imageProvider"
+                  value="gemini"
+                  checked={imageProvider === 'gemini'}
+                  onChange={() => setImageProvider('gemini')}
+                />
+                Gemini (gemini-3-pro-image-preview)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: 'normal' }}>
+                <input
+                  type="radio"
+                  name="imageProvider"
+                  value="openai"
+                  checked={imageProvider === 'openai'}
+                  onChange={() => setImageProvider('openai')}
+                />
+                gpt-image-2 (OpenAI)
+              </label>
+            </div>
+          </div>
+          {imageProvider === 'openai' && (
+            <div className="form-group" style={{ marginTop: '10px' }}>
+              <label>OpenAI API Key</label>
+              <input
+                type="password"
+                value={openaiKey}
+                onChange={(e) => setOpenaiKey(e.target.value)}
+                placeholder="請輸入您的 OpenAI API Key (sk-...)"
+                className="form-input"
+              />
+              <div style={{ fontSize: '0.8em', color: '#888', marginTop: '4px' }}>
+                注意：gpt-image-2 為純 text-to-image，不支援參考圖輸入，角色一致性依賴 prompt。
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ===== 首頁 ===== */}
@@ -3236,7 +3354,7 @@ function App() {
                         onClick={async () => {
                           setRegeneratingMain(true)
                           try {
-                            const mainImg = await generateMainImage(apiKey, characterImage, theme)
+                            const mainImg = await genMainImage(activeApiKey, characterImage, theme)
                             setRawMainImage(mainImg)
                             const processed = await removeBackgroundSimple(mainImg, backgroundThreshold)
                             setMainImage(processed)
@@ -3731,6 +3849,79 @@ function App() {
                 <p className="download-hint">
                   將下載包含 {cutImages.length} 張貼圖、1 張主要圖片和 1 張標籤圖片的 ZIP 檔案
                 </p>
+                {cutImages.filter(Boolean).length >= 2 && (
+                  <button
+                    className="btn"
+                    style={{ marginTop: '10px', background: '#7c4dff', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '1em', fontWeight: 'bold' }}
+                    onClick={handleOpenGifModal}
+                    disabled={loading}
+                  >
+                    製作動圖 GIF
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* 動圖製作 Modal */}
+            {gifModal && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '90%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+                  <h3 style={{ margin: '0 0 12px', color: '#333' }}>製作動圖 GIF</h3>
+                  <p style={{ fontSize: '0.85em', color: '#666', margin: '0 0 12px' }}>
+                    選擇要加入動圖的貼圖幀，設定播放速度後下載。
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: '6px', marginBottom: '16px', maxHeight: '240px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '8px', padding: '8px' }}>
+                    {cutImages.map((img, i) => {
+                      if (!img) return null
+                      const selected = gifSelectedFrames.includes(i)
+                      const order = gifSelectedFrames.indexOf(i)
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => handleToggleGifFrame(i)}
+                          style={{ position: 'relative', cursor: 'pointer', borderRadius: '6px', overflow: 'hidden', border: selected ? '2px solid #7c4dff' : '2px solid #ddd', aspectRatio: '1', background: '#f5f5f5' }}
+                          title={`幀 ${i + 1}`}
+                        >
+                          <img src={img} alt={`幀${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                          {selected ? (
+                            <span style={{ position: 'absolute', top: '2px', left: '2px', background: '#7c4dff', color: '#fff', borderRadius: '10px', padding: '0 4px', fontSize: '10px', fontWeight: 'bold', lineHeight: '16px' }}>{order + 1}</span>
+                          ) : (
+                            <span style={{ position: 'absolute', top: '2px', left: '2px', background: 'rgba(0,0,0,0.4)', color: '#fff', borderRadius: '10px', padding: '0 4px', fontSize: '10px', lineHeight: '16px' }}>{i + 1}</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <p style={{ fontSize: '0.8em', color: '#999', margin: '-8px 0 14px' }}>已選 {gifSelectedFrames.length} 幀，點擊縮圖選取/取消，數字為播放順序</p>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    <button style={{ fontSize: '0.85em', padding: '4px 12px', background: '#f0f0f0', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer' }} onClick={() => setGifSelectedFrames(cutImages.map((img, i) => img ? i : null).filter(i => i !== null))}>全選</button>
+                    <button style={{ fontSize: '0.85em', padding: '4px 12px', background: '#f0f0f0', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer' }} onClick={() => setGifSelectedFrames([])}>清空</button>
+                  </div>
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '0.9em', color: '#555', display: 'block', marginBottom: '6px' }}>
+                      每幀時間：{(gifDelay / 100).toFixed(2)} 秒
+                    </label>
+                    <input type="range" min="10" max="300" step="10" value={gifDelay} onChange={e => setGifDelay(Number(e.target.value))} style={{ width: '100%' }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75em', color: '#999' }}>
+                      <span>快（0.1s）</span><span>慢（3s）</span>
+                    </div>
+                  </div>
+                  {gifProgress && (
+                    <p style={{ fontSize: '0.85em', color: '#7c4dff', margin: '0 0 10px', textAlign: 'center' }}>{gifProgress}</p>
+                  )}
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      style={{ flex: 1, background: '#7c4dff', color: '#fff', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontSize: '1em', fontWeight: 'bold', opacity: gifGenerating ? 0.6 : 1 }}
+                      onClick={handleDownloadGif}
+                      disabled={gifGenerating || gifSelectedFrames.length === 0}
+                    >{gifGenerating ? '製作中...' : '下載 GIF'}</button>
+                    <button
+                      style={{ padding: '10px 18px', background: '#f0f0f0', border: '1px solid #ccc', borderRadius: '8px', cursor: 'pointer', fontSize: '1em' }}
+                      onClick={() => { setGifModal(false); setGifProgress('') }}
+                      disabled={gifGenerating}
+                    >取消</button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
