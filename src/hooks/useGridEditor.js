@@ -656,6 +656,7 @@ export function useGridEditor({
     cropGridCellsWithAdjust,
     ensureGridCellsReady,
     ensureStickerReady,
+    ensureArraySize,
     reset,
 
     // --- handlers ---

@@ -81,6 +81,7 @@ export function useAnimationEditor({ cutImages }) {
     setGifDelay,
     gifGenerating,
     gifProgress,
+    setGifProgress,
     // handlers
     handleOpenGifModal,
     handleToggleGifFrame,
