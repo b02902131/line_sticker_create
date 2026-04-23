@@ -16,6 +16,7 @@ import { useSingleImageEditor } from './hooks/useSingleImageEditor'
 import { useGridEditor } from './hooks/useGridEditor'
 import { useStickerEditor } from './hooks/useStickerEditor'
 import { useDescriptionsEditor } from './hooks/useDescriptionsEditor'
+import { useClickRemoveEditor } from './hooks/useClickRemoveEditor'
 import { useAnimationEditor } from './hooks/useAnimationEditor'
 
 const LS_KEY = 'stampmill_draft'
@@ -584,6 +585,40 @@ function App() {
   const handleDragOver2 = descriptionsEditor.handleDragOver2
   const handleDrop2 = descriptionsEditor.handleDrop2
 
+  // ===== useClickRemoveEditor hook =====
+  const clickRemoveEditor = useClickRemoveEditor({
+    cutImages,
+    setCutImages,
+    processedGridImages,
+    setProcessedGridImages,
+    mainImage,
+    setMainImage,
+    tabImage,
+    setTabImage,
+    gridImages,
+  })
+  const clickRemoveTarget = clickRemoveEditor.clickRemoveTarget
+  const setClickRemoveTarget = clickRemoveEditor.setClickRemoveTarget
+  const clickRemoveThreshold = clickRemoveEditor.clickRemoveThreshold
+  const setClickRemoveThreshold = clickRemoveEditor.setClickRemoveThreshold
+  const clickRemoveMode = clickRemoveEditor.clickRemoveMode
+  const setClickRemoveMode = clickRemoveEditor.setClickRemoveMode
+  const clickRemoveUndoStack = clickRemoveEditor.clickRemoveUndoStack
+  const setClickRemoveUndoStack = clickRemoveEditor.setClickRemoveUndoStack
+  const pickedColor = clickRemoveEditor.pickedColor
+  const setPickedColor = clickRemoveEditor.setPickedColor
+  const colorRectStart = clickRemoveEditor.colorRectStart
+  const colorRectEnd = clickRemoveEditor.colorRectEnd
+  const isDraggingRect = clickRemoveEditor.isDraggingRect
+  const clickRemoveCanvasRef = clickRemoveEditor.clickRemoveCanvasRef
+  const clickRemoveLensRef = clickRemoveEditor.clickRemoveLensRef
+  const handleClickRemoveUndo = clickRemoveEditor.handleClickRemoveUndo
+  const handleClickRemoveFlood = clickRemoveEditor.handleClickRemoveFlood
+  const handleColorPick = clickRemoveEditor.handleColorPick
+  const handleColorRectMouseDown = clickRemoveEditor.handleColorRectMouseDown
+  const handleColorRectMouseMove = clickRemoveEditor.handleColorRectMouseMove
+  const handleColorRectMouseUp = clickRemoveEditor.handleColorRectMouseUp
+
   // 步驟 4: 生成角色
   const handleGenerateCharacter = async () => {
     if (!activeApiKey.trim()) {
@@ -1034,140 +1069,7 @@ function App() {
     }
   }
 
-  // 點擊去背
-  const [clickRemoveTarget, setClickRemoveTarget] = useState(null) // { index, type } type: 'sticker' | 'main' | 'tab'
-  const [clickRemoveThreshold, setClickRemoveThreshold] = useState(30)
-  const [clickRemoveMode, setClickRemoveMode] = useState('flood') // 'flood' | 'color'
-  const [clickRemoveUndoStack, setClickRemoveUndoStack] = useState([])
-  // 吸色去除狀態
-  const [pickedColor, setPickedColor] = useState(null) // { r, g, b }
-  const [colorRectStart, setColorRectStart] = useState(null) // { x, y } 圖片座標
-  const [colorRectEnd, setColorRectEnd] = useState(null) // { x, y } 圖片座標
-  const [isDraggingRect, setIsDraggingRect] = useState(false)
-  const clickRemoveCanvasRef = useRef(null)
-  const clickRemoveLensRef = useRef(null)
-
-  const getClickRemoveSource = () => {
-    if (!clickRemoveTarget) return null
-    const { index, type } = clickRemoveTarget
-    if (type === 'sticker') return cutImages[index]
-    if (type === 'grid') return processedGridImages[index] || gridImages[index]
-    if (type === 'main') return mainImage
-    if (type === 'tab') return tabImage
-    return null
-  }
-
-  const handleClickRemoveUndo = () => {
-    if (clickRemoveUndoStack.length === 0 || !clickRemoveTarget) return
-    const prev = clickRemoveUndoStack[clickRemoveUndoStack.length - 1]
-    setClickRemoveUndoStack(stack => stack.slice(0, -1))
-    const { index, type } = clickRemoveTarget
-    if (type === 'sticker') {
-      setCutImages(arr => { const u = [...arr]; u[index] = prev; return u })
-    } else if (type === 'grid') {
-      setProcessedGridImages(arr => { const u = [...arr]; u[index] = prev; return u })
-    } else if (type === 'main') {
-      setMainImage(prev)
-    } else if (type === 'tab') {
-      setTabImage(prev)
-    }
-  }
-
-  const canvasToImageCoords = (e) => {
-    const canvas = clickRemoveCanvasRef.current
-    if (!canvas) return null
-    const rect = canvas.getBoundingClientRect()
-    const scaleX = canvas.width / rect.width
-    const scaleY = canvas.height / rect.height
-    return {
-      x: Math.floor((e.clientX - rect.left) * scaleX),
-      y: Math.floor((e.clientY - rect.top) * scaleY),
-    }
-  }
-
-  const applyResult = (result) => {
-    const { index, type } = clickRemoveTarget
-    if (type === 'sticker') {
-      setCutImages(prev => { const u = [...prev]; u[index] = result; return u })
-    } else if (type === 'grid') {
-      setProcessedGridImages(prev => { const u = [...prev]; u[index] = result; return u })
-    } else if (type === 'main') {
-      setMainImage(result)
-    } else if (type === 'tab') {
-      setTabImage(result)
-    }
-  }
-
-  // flood 模式：點擊即去背
-  const handleClickRemoveFlood = async (e) => {
-    const pt = canvasToImageCoords(e)
-    if (!pt || !clickRemoveTarget) return
-    const source = getClickRemoveSource()
-    if (!source) return
-    setClickRemoveUndoStack(stack => [...stack, source])
-    try {
-      const result = await removeBackgroundFromPoint(source, pt.x, pt.y, clickRemoveThreshold)
-      applyResult(result)
-    } catch (error) {
-      alert(`去背失敗: ${error.message}`)
-    }
-  }
-
-  // color 模式：第一步吸色
-  const handleColorPick = async (e) => {
-    const pt = canvasToImageCoords(e)
-    if (!pt) return
-    const source = getClickRemoveSource()
-    if (!source) return
-    const color = await pickColorFromImage(source, pt.x, pt.y)
-    setPickedColor(color)
-    setColorRectStart(null)
-    setColorRectEnd(null)
-  }
-
-  // color 模式：框選開始
-  const handleColorRectMouseDown = (e) => {
-    if (!pickedColor) return
-    const pt = canvasToImageCoords(e)
-    if (!pt) return
-    setColorRectStart(pt)
-    setColorRectEnd(pt)
-    setIsDraggingRect(true)
-  }
-
-  // color 模式：框選中
-  const handleColorRectMouseMove = (e) => {
-    if (!isDraggingRect) return
-    const pt = canvasToImageCoords(e)
-    if (pt) setColorRectEnd(pt)
-  }
-
-  // color 模式：框選結束 → 去除
-  const handleColorRectMouseUp = async () => {
-    if (!isDraggingRect || !colorRectStart || !colorRectEnd || !pickedColor) {
-      setIsDraggingRect(false)
-      return
-    }
-    setIsDraggingRect(false)
-    const source = getClickRemoveSource()
-    if (!source) return
-
-    const x = Math.min(colorRectStart.x, colorRectEnd.x)
-    const y = Math.min(colorRectStart.y, colorRectEnd.y)
-    const w = Math.abs(colorRectEnd.x - colorRectStart.x)
-    const h = Math.abs(colorRectEnd.y - colorRectStart.y)
-    if (w < 2 || h < 2) return
-
-    setClickRemoveUndoStack(stack => [...stack, source])
-    try {
-      const result = await removeBackgroundByColor(source, pickedColor, clickRemoveThreshold, { x, y, w, h })
-      applyResult(result)
-    } catch (error) {
-      alert(`吸色去除失敗: ${error.message}`)
-    }
-    setColorRectStart(null)
-    setColorRectEnd(null)
-  }
+  // clickRemove handlers → from useClickRemoveEditor aliases above
 
   // 批次重新去背（用於調整閾值後）
   const handleReapplyBackground = async () => {
