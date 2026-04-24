@@ -13,6 +13,7 @@ import CropAdjustPanel from './components/CropAdjustPanel'
 import { StickerPreviewGrid } from './components/StickerPreviewGrid'
 import TabCropper from './components/TabCropper'
 import StickerProducePage from './pages/StickerProducePage'
+import ImportPipelinePage from './pages/ImportPipelinePage'
 import { useSingleImageEditor } from './hooks/useSingleImageEditor'
 import { useGridEditor } from './hooks/useGridEditor'
 import { useStickerEditor } from './hooks/useStickerEditor'
@@ -309,29 +310,6 @@ function App() {
 
   const [dragging, setDragging] = useState(false)
 
-  // 自動保存圖片到 IndexedDB（防抖 1 秒）
-  const saveTimerRef = useRef(null)
-  useEffect(() => {
-    if (!selectedCharacter?.id) return
-    if (gridImages.length === 0 && cutImages.length === 0) return
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => {
-      saveCharacterImages(selectedCharacter.id, {
-        gridImages,
-        processedGridImages,
-        cutImages,
-        rawCutImages,
-        mainImage,
-        tabImage,
-        rawTabImage,
-        backgroundThreshold,
-        chromaKeyBgColor,
-        previewBgColor
-      }).catch(err => console.warn('保存圖片到 IndexedDB 失敗:', err))
-    }, 1000)
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [gridImages, processedGridImages, cutImages, rawCutImages, mainImage, tabImage, rawTabImage, selectedCharacter, backgroundThreshold, chromaKeyBgColor, previewBgColor])
-
   // 共用：處理圖片檔案（支援多張）
   const handleImageFiles = useCallback(async (files) => {
     const newImages = []
@@ -469,6 +447,29 @@ function App() {
   const setCutImages = gridEditor.setCutImages
   const rawCutImages = gridEditor.rawCutImages
   const setRawCutImages = gridEditor.setRawCutImages
+
+  // 自動保存圖片到 IndexedDB（防抖 1 秒）
+  const saveTimerRef = useRef(null)
+  useEffect(() => {
+    if (!selectedCharacter?.id) return
+    if (gridImages.length === 0 && cutImages.length === 0) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveCharacterImages(selectedCharacter.id, {
+        gridImages,
+        processedGridImages,
+        cutImages,
+        rawCutImages,
+        mainImage,
+        tabImage,
+        rawTabImage,
+        backgroundThreshold,
+        chromaKeyBgColor,
+        previewBgColor
+      }).catch(err => console.warn('保存圖片到 IndexedDB 失敗:', err))
+    }, 1000)
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  }, [gridImages, processedGridImages, cutImages, rawCutImages, mainImage, tabImage, rawTabImage, selectedCharacter, backgroundThreshold, chromaKeyBgColor, previewBgColor])
   const stickerHistory = gridEditor.stickerHistory
   const setStickerHistory = gridEditor.setStickerHistory
   const stickerThresholds = gridEditor.stickerThresholds
@@ -1151,54 +1152,36 @@ function App() {
 
         {/* API Key — 所有頁面共用 */}
         <div className="step-section">
-          <div className="form-group">
-            <label>Gemini API Key <span style={{ color: '#888', fontWeight: 'normal', fontSize: '0.85em' }}>(文字生成 / 角色描述必填)</span></label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="請輸入您的 Gemini API Key"
-              className="form-input"
-            />
-          </div>
-          <div className="form-group" style={{ marginTop: '10px' }}>
-            <label>圖像生成引擎</label>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '4px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: 'normal' }}>
-                <input
-                  type="radio"
-                  name="imageProvider"
-                  value="gemini"
-                  checked={imageProvider === 'gemini'}
-                  onChange={() => setImageProvider('gemini')}
-                />
-                Gemini (gemini-3-pro-image-preview)
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>
+                {imageProvider === 'openai' ? 'OpenAI API Key' : 'Gemini API Key'}
+                {imageProvider === 'gemini' && <span style={{ color: '#888', fontWeight: 'normal', fontSize: '0.85em' }}> (文字生成 / 角色描述必填)</span>}
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: 'normal' }}>
-                <input
-                  type="radio"
-                  name="imageProvider"
-                  value="openai"
-                  checked={imageProvider === 'openai'}
-                  onChange={() => setImageProvider('openai')}
-                />
-                gpt-image-2 (OpenAI)
-              </label>
-            </div>
-          </div>
-          {imageProvider === 'openai' && (
-            <div className="form-group" style={{ marginTop: '10px' }}>
-              <label>OpenAI API Key</label>
               <input
                 type="password"
-                value={openaiKey}
-                onChange={(e) => setOpenaiKey(e.target.value)}
-                placeholder="請輸入您的 OpenAI API Key (sk-...)"
+                value={imageProvider === 'openai' ? openaiKey : apiKey}
+                onChange={(e) => imageProvider === 'openai' ? setOpenaiKey(e.target.value) : setApiKey(e.target.value)}
+                placeholder={imageProvider === 'openai' ? '請輸入您的 OpenAI API Key (sk-...)' : '請輸入您的 Gemini API Key'}
                 className="form-input"
               />
-              <div style={{ fontSize: '0.8em', color: '#888', marginTop: '4px' }}>
-                注意：gpt-image-2 為純 text-to-image，不支援參考圖輸入，角色一致性依賴 prompt。
-              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '1px' }}>
+              <button
+                className={`btn ${imageProvider === 'gemini' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '8px 12px', fontSize: '0.85em', whiteSpace: 'nowrap' }}
+                onClick={() => setImageProvider('gemini')}
+              >Gemini</button>
+              <button
+                className={`btn ${imageProvider === 'openai' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '8px 12px', fontSize: '0.85em', whiteSpace: 'nowrap' }}
+                onClick={() => setImageProvider('openai')}
+              >gpt-image-2</button>
+            </div>
+          </div>
+          {imageProvider === 'gemini' && (
+            <div style={{ fontSize: '0.8em', color: '#888', marginTop: '6px' }}>
+              文字生成用 Gemini API Key，圖像生成也是。切換到 gpt-image-2 可改用 OpenAI 生圖。
             </div>
           )}
         </div>
@@ -1209,18 +1192,26 @@ function App() {
             <div className="step-section">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                 <h2 style={{ margin: 0 }}>我的角色</h2>
-                <button className="btn btn-primary btn-inline" onClick={() => setPage('character-create')}>
-                  + 新增角色
-                </button>
-                <label className="btn btn-secondary btn-inline" style={{ marginLeft: '8px', cursor: 'pointer' }}>
-                  匯入角色
-                  <input
-                    type="file"
-                    accept="application/json"
-                    onChange={handleImportCharacter}
-                    style={{ display: 'none' }}
-                  />
-                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-primary btn-inline" onClick={() => setPage('character-create')}>
+                    + 新增角色
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-inline"
+                    onClick={() => setPage('import-pipeline')}
+                  >
+                    宮格圖匯入
+                  </button>
+                  <label className="btn btn-secondary btn-inline" style={{ cursor: 'pointer' }}>
+                    匯入角色
+                    <input
+                      type="file"
+                      accept="application/json"
+                      onChange={handleImportCharacter}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                </div>
               </div>
               {characters.length === 0 ? (
                 <p style={{ color: '#999', textAlign: 'center', padding: '30px' }}>還沒有角色，點擊「新增角色」開始</p>
@@ -1423,6 +1414,11 @@ function App() {
               )}
             </div>
           </>
+        )}
+
+        {/* ===== 宮格圖匯入頁 ===== */}
+        {page === 'import-pipeline' && (
+          <ImportPipelinePage setPage={setPage} />
         )}
 
         {/* ===== 貼圖生產頁 ===== */}
