@@ -35,6 +35,144 @@ function ClickRemoveCanvas({ canvasRef, src, bgColor, onClick }) {
   )
 }
 
+function ClickRemoveModal({
+  title, target, onClose,
+  mode, setMode,
+  threshold, setThreshold,
+  undoStack, onUndo,
+  pickedColor, setPickedColor, colorRectStart, colorRectEnd, isDraggingRect,
+  canvasRef, lensRef,
+  getSource, onFloodClick, onColorPick,
+  onColorRectMouseDown, onColorRectMouseMove, onColorRectMouseUp,
+  previewBgColor, setPreviewBgColor,
+  extraControls,
+}) {
+  if (!target) return null
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        backgroundColor: 'rgba(0,0,0,0.7)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{
+        background: '#fff', borderRadius: '12px', padding: '20px',
+        maxWidth: '95vw', maxHeight: '90vh', width: '95vw',
+        display: 'flex', gap: '16px', overflow: 'hidden',
+      }}>
+        {/* Left control panel */}
+        <div style={{ width: '280px', minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0, fontSize: '16px' }}>{title}</h3>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '4px 8px' }}
+                disabled={undoStack.length === 0} onClick={onUndo}>復原</button>
+              <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '4px 8px' }}
+                onClick={onClose}>關閉</button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <button className={`btn ${mode === 'flood' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ fontSize: '12px', padding: '4px 10px', flex: 1 }}
+              onClick={() => { setMode('flood'); setPickedColor(null) }}>區域擴散</button>
+            <button className={`btn ${mode === 'color' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ fontSize: '12px', padding: '4px 10px', flex: 1 }}
+              onClick={() => { setMode('color'); setPickedColor(null) }}>吸色去除</button>
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>容差：{threshold}</div>
+            <input type="range" min="1" max="120" value={threshold}
+              onChange={(e) => setThreshold(Number(e.target.value))} style={{ width: '100%' }} />
+          </div>
+          {extraControls}
+          <div>
+            <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>背景：</div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {PREVIEW_BG_COLORS.map(c => (
+                <div key={c} onClick={() => setPreviewBgColor(c)} style={{
+                  width: '28px', height: '28px', backgroundColor: c, cursor: 'pointer',
+                  border: previewBgColor === c ? '3px solid #4CAF50' : '2px solid #ccc',
+                  borderRadius: '4px', boxSizing: 'border-box',
+                }} />
+              ))}
+            </div>
+          </div>
+          <p style={{ fontSize: '12px', color: '#888', margin: 0 }}>
+            {mode === 'flood' ? '點擊圖片，從該處往外擴散移除相近色。'
+              : !pickedColor ? '步驟 1：點擊圖片吸取顏色。'
+              : '步驟 2：拖曳框選去除範圍。'}
+          </p>
+          {mode === 'color' && pickedColor && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <div style={{
+                width: '28px', height: '28px', borderRadius: '4px',
+                backgroundColor: `rgb(${pickedColor.r},${pickedColor.g},${pickedColor.b})`,
+                border: '2px solid #333',
+              }} />
+              <span style={{ fontSize: '12px', color: '#999' }}>
+                rgb({pickedColor.r}, {pickedColor.g}, {pickedColor.b})
+              </span>
+              <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '3px 8px' }}
+                onClick={() => setPickedColor(null)}>重新吸色</button>
+            </div>
+          )}
+        </div>
+        {/* Right image area */}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor: 'crosshair', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onMouseMove={(e) => {
+            if (mode === 'flood' || (mode === 'color' && !pickedColor)) {
+              const lens = lensRef.current; const canvas = canvasRef.current
+              if (!lens || !canvas) return
+              const canvasRect = canvas.getBoundingClientRect()
+              const containerRect = e.currentTarget.getBoundingClientRect()
+              const x = e.clientX - canvasRect.left; const y = e.clientY - canvasRect.top
+              if (x < 0 || y < 0 || x > canvasRect.width || y > canvasRect.height) { lens.style.display = 'none'; return }
+              const lensSize = 120; const zoom = 4
+              lens.style.display = 'block'
+              lens.style.left = `${x + (canvasRect.left - containerRect.left) - lensSize / 2}px`
+              lens.style.top = `${y + (canvasRect.top - containerRect.top) - lensSize / 2}px`
+              lens.style.width = `${lensSize}px`; lens.style.height = `${lensSize}px`
+              lens.style.backgroundSize = `${canvasRect.width * zoom}px ${canvasRect.height * zoom}px`
+              lens.style.backgroundPosition = `-${x * zoom - lensSize / 2}px -${y * zoom - lensSize / 2}px`
+            } else { if (lensRef.current) lensRef.current.style.display = 'none' }
+            if (mode === 'color' && pickedColor) onColorRectMouseMove(e)
+          }}
+          onMouseLeave={() => { if (lensRef.current) lensRef.current.style.display = 'none' }}
+          onMouseDown={(e) => { if (mode === 'color' && pickedColor) onColorRectMouseDown(e) }}
+          onMouseUp={() => { if (mode === 'color' && pickedColor) onColorRectMouseUp() }}
+        >
+          <ClickRemoveCanvas canvasRef={canvasRef} src={getSource()} bgColor={previewBgColor}
+            onClick={mode === 'flood' ? onFloodClick : (!pickedColor ? onColorPick : undefined)} />
+          <div ref={lensRef} style={{
+            display: 'none', position: 'absolute', pointerEvents: 'none',
+            border: '2px solid #4CAF50', borderRadius: '50%',
+            backgroundImage: `url(${getSource()})`, backgroundRepeat: 'no-repeat',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          }} />
+          {colorRectStart && colorRectEnd && isDraggingRect && (() => {
+            const canvas = canvasRef.current; const container = canvas?.parentElement
+            if (!canvas || !container) return null
+            const cr = canvas.getBoundingClientRect(); const co = container.getBoundingClientRect()
+            const sx = canvas.width / cr.width; const sy = canvas.height / cr.height
+            return (
+              <div style={{
+                position: 'absolute', pointerEvents: 'none',
+                left: Math.min(colorRectStart.x, colorRectEnd.x) / sx + (cr.left - co.left),
+                top: Math.min(colorRectStart.y, colorRectEnd.y) / sy + (cr.top - co.top),
+                width: Math.abs(colorRectEnd.x - colorRectStart.x) / sx,
+                height: Math.abs(colorRectEnd.y - colorRectStart.y) / sy,
+                border: '2px dashed #4CAF50', backgroundColor: 'rgba(76,175,80,0.15)',
+              }} />
+            )
+          })()}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ImportPipelinePage({ setPage }) {
   // ---- Sticker spec ----
   const [stickerTypeKey, setStickerTypeKey] = useState(DEFAULT_SPEC_KEY)
@@ -76,7 +214,7 @@ export default function ImportPipelinePage({ setPage }) {
     chromaKeyBgColor: '#ffffff',
   })
 
-  // ---- Click-remove editor hook ----
+  // ---- Click-remove editor hook (for individual cells) ----
   // Maps processedCells as cutImages so type:'sticker' targets processedCells[index]
   const {
     clickRemoveTarget, setClickRemoveTarget,
@@ -101,6 +239,35 @@ export default function ImportPipelinePage({ setPage }) {
     setMainImage,
     tabImage,
     setTabImage,
+    gridImages: [],
+  })
+
+  // ---- Click-remove editor hook (for whole grid image pre-split) ----
+  const {
+    clickRemoveTarget: gridClickRemoveTarget, setClickRemoveTarget: setGridClickRemoveTarget,
+    clickRemoveThreshold: gridClickRemoveThreshold, setClickRemoveThreshold: setGridClickRemoveThreshold,
+    clickRemoveMode: gridClickRemoveMode, setClickRemoveMode: setGridClickRemoveMode,
+    clickRemoveUndoStack: gridClickRemoveUndoStack, setClickRemoveUndoStack: setGridClickRemoveUndoStack,
+    pickedColor: gridPickedColor, setPickedColor: setGridPickedColor,
+    colorRectStart: gridColorRectStart, setColorRectStart: setGridColorRectStart,
+    colorRectEnd: gridColorRectEnd, setColorRectEnd: setGridColorRectEnd,
+    isDraggingRect: gridIsDraggingRect,
+    clickRemoveCanvasRef: gridClickRemoveCanvasRef, clickRemoveLensRef: gridClickRemoveLensRef,
+    getClickRemoveSource: getGridClickRemoveSource, applyResult: applyGridResult,
+    handleClickRemoveUndo: handleGridClickRemoveUndo, handleClickRemoveFlood: handleGridClickRemoveFlood,
+    handleColorPick: handleGridColorPick,
+    handleColorRectMouseDown: handleGridColorRectMouseDown,
+    handleColorRectMouseMove: handleGridColorRectMouseMove,
+    handleColorRectMouseUp: handleGridColorRectMouseUp,
+  } = useClickRemoveEditor({
+    cutImages: [],
+    setCutImages: () => {},
+    processedGridImages: [],
+    setProcessedGridImages: () => {},
+    mainImage: uploadedGridImage,
+    setMainImage: setUploadedGridImage,
+    tabImage: null,
+    setTabImage: () => {},
     gridImages: [],
   })
 
@@ -421,6 +588,26 @@ export default function ImportPipelinePage({ setPage }) {
 
         {bgStrategy === 'none' && (
           <div style={{ color: '#888', fontSize: '0.9em' }}>圖片已包含透明背景，直接分割使用。</div>
+        )}
+
+        {uploadedGridImage && (
+          <div style={{ marginTop: '12px', marginBottom: '8px' }}>
+            <button
+              className="btn btn-secondary btn-inline"
+              onClick={() => {
+                setGridClickRemoveUndoStack([])
+                setGridPickedColor(null)
+                setGridColorRectStart(null)
+                setGridColorRectEnd(null)
+                setGridClickRemoveTarget({ type: 'main' })
+              }}
+            >
+              對宮格圖去背
+            </button>
+            <span style={{ marginLeft: '8px', color: '#888', fontSize: '0.85em' }}>
+              分割前先用 flood 點擊或框選去背整張宮格圖
+            </span>
+          </div>
         )}
 
         <div style={{ marginTop: '12px' }}>
@@ -810,238 +997,63 @@ export default function ImportPipelinePage({ setPage }) {
         />
       )}
 
-      {/* Click-remove modal */}
-      {clickRemoveTarget && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 9999,
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          }}
-          onClick={(e) => { if (e.target === e.currentTarget) setClickRemoveTarget(null) }}
-        >
-          <div style={{
-            background: '#fff', borderRadius: '12px', padding: '20px',
-            maxWidth: '95vw', maxHeight: '90vh', width: '95vw',
-            display: 'flex', gap: '16px', overflow: 'hidden',
-          }}>
-            {/* Left control panel */}
-            <div style={{
-              width: '280px', minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '10px',
-              overflowY: 'auto',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ margin: 0, fontSize: '16px' }}>
-                  選去 #{clickRemoveTarget.index + 1}
-                </h3>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ fontSize: '12px', padding: '4px 8px' }}
-                    disabled={clickRemoveUndoStack.length === 0}
-                    onClick={handleClickRemoveUndo}
-                  >復原</button>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ fontSize: '12px', padding: '4px 8px' }}
-                    onClick={() => setClickRemoveTarget(null)}
-                  >關閉</button>
-                </div>
-              </div>
-
-              {/* Mode selector */}
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button
-                  className={`btn ${clickRemoveMode === 'flood' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ fontSize: '12px', padding: '4px 10px', flex: 1 }}
-                  onClick={() => { setClickRemoveMode('flood'); setPickedColor(null) }}
-                >區域擴散</button>
-                <button
-                  className={`btn ${clickRemoveMode === 'color' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ fontSize: '12px', padding: '4px 10px', flex: 1 }}
-                  onClick={() => { setClickRemoveMode('color'); setPickedColor(null) }}
-                >吸色去除</button>
-              </div>
-
-              {/* Click-remove threshold */}
-              <div>
-                <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>容差：{clickRemoveThreshold}</div>
-                <input
-                  type="range" min="1" max="120"
-                  value={clickRemoveThreshold}
-                  onChange={(e) => setClickRemoveThreshold(Number(e.target.value))}
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-              {/* Full-image bg removal using current backgroundThreshold */}
-              <div>
-                <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>
-                  去背閾值：{backgroundThreshold}
-                </div>
-                <input
-                  type="range" min="0" max="255"
-                  value={backgroundThreshold}
-                  onChange={(e) => setBackgroundThreshold(Number(e.target.value))}
-                  style={{ width: '100%' }}
-                />
-                <button
-                  className="btn btn-secondary"
-                  style={{ fontSize: '12px', padding: '4px 10px', marginTop: '6px', width: '100%' }}
-                  onClick={async () => {
-                    const source = processedCells[clickRemoveTarget.index]
-                    if (!source) return
-                    try {
-                      const bgColor = bgStrategy === 'color' ? manualBgColor : chromaKeyBgColor
-                      const result = await removeBackgroundSimple(source, backgroundThreshold, null, { bgColor })
-                      applyResult(result)
-                    } catch (err) { alert('去背失敗: ' + err.message) }
-                  }}
-                >全圖去背</button>
-              </div>
-
-              {/* Preview background selector */}
-              <div>
-                <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>背景：</div>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {PREVIEW_BG_COLORS.map(c => (
-                    <div
-                      key={c}
-                      onClick={() => setPreviewBgColor(c)}
-                      style={{
-                        width: '28px', height: '28px',
-                        backgroundColor: c,
-                        border: previewBgColor === c ? '3px solid #4CAF50' : '2px solid #ccc',
-                        borderRadius: '4px', cursor: 'pointer',
-                        boxSizing: 'border-box',
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Instructions */}
-              <p style={{ fontSize: '12px', color: '#888', margin: 0 }}>
-                {clickRemoveMode === 'flood'
-                  ? '點擊圖片，從該處往外擴散移除相近色。'
-                  : !pickedColor
-                    ? '步驟 1：點擊圖片吸取顏色。'
-                    : '步驟 2：拖曳框選去除範圍。'}
-              </p>
-
-              {/* Picked color display */}
-              {clickRemoveMode === 'color' && pickedColor && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                  <div style={{
-                    width: '28px', height: '28px', borderRadius: '4px',
-                    backgroundColor: `rgb(${pickedColor.r},${pickedColor.g},${pickedColor.b})`,
-                    border: '2px solid #333',
-                  }} />
-                  <span style={{ fontSize: '12px', color: '#999' }}>
-                    rgb({pickedColor.r}, {pickedColor.g}, {pickedColor.b})
-                  </span>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ fontSize: '12px', padding: '3px 8px' }}
-                    onClick={() => { setPickedColor(null); setColorRectStart(null); setColorRectEnd(null) }}
-                  >重新吸色</button>
-                </div>
-              )}
-            </div>
-
-            {/* Right image area */}
-            <div
-              style={{
-                flex: 1, position: 'relative', overflow: 'hidden', cursor: 'crosshair',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+      <ClickRemoveModal
+        title={clickRemoveTarget ? `選去 #${clickRemoveTarget.index + 1}` : ''}
+        target={clickRemoveTarget}
+        onClose={() => setClickRemoveTarget(null)}
+        mode={clickRemoveMode} setMode={setClickRemoveMode}
+        threshold={clickRemoveThreshold} setThreshold={setClickRemoveThreshold}
+        undoStack={clickRemoveUndoStack} onUndo={handleClickRemoveUndo}
+        pickedColor={pickedColor} setPickedColor={setPickedColor}
+        colorRectStart={colorRectStart} colorRectEnd={colorRectEnd} isDraggingRect={isDraggingRect}
+        canvasRef={clickRemoveCanvasRef} lensRef={clickRemoveLensRef}
+        getSource={getClickRemoveSource}
+        onFloodClick={handleClickRemoveFlood}
+        onColorPick={handleColorPick}
+        onColorRectMouseDown={handleColorRectMouseDown}
+        onColorRectMouseMove={handleColorRectMouseMove}
+        onColorRectMouseUp={handleColorRectMouseUp}
+        previewBgColor={previewBgColor} setPreviewBgColor={setPreviewBgColor}
+        extraControls={
+          <div>
+            <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>去背閾值：{backgroundThreshold}</div>
+            <input type="range" min="0" max="255" value={backgroundThreshold}
+              onChange={(e) => setBackgroundThreshold(Number(e.target.value))} style={{ width: '100%' }} />
+            <button className="btn btn-secondary"
+              style={{ fontSize: '12px', padding: '4px 10px', marginTop: '6px', width: '100%' }}
+              onClick={async () => {
+                if (!clickRemoveTarget) return
+                const source = processedCells[clickRemoveTarget.index]
+                if (!source) return
+                try {
+                  const bgColor = bgStrategy === 'color' ? manualBgColor : chromaKeyBgColor
+                  const result = await removeBackgroundSimple(source, backgroundThreshold, null, { bgColor })
+                  applyResult(result)
+                } catch (err) { alert('去背失敗: ' + err.message) }
               }}
-              onMouseMove={(e) => {
-                if (clickRemoveMode === 'flood' || (clickRemoveMode === 'color' && !pickedColor)) {
-                  const lens = clickRemoveLensRef.current
-                  const canvas = clickRemoveCanvasRef.current
-                  const container = e.currentTarget
-                  if (!lens || !canvas) return
-                  const canvasRect = canvas.getBoundingClientRect()
-                  const containerRect = container.getBoundingClientRect()
-                  const x = e.clientX - canvasRect.left
-                  const y = e.clientY - canvasRect.top
-                  if (x < 0 || y < 0 || x > canvasRect.width || y > canvasRect.height) {
-                    lens.style.display = 'none'
-                    return
-                  }
-                  lens.style.display = 'block'
-                  const lensSize = 120
-                  const zoom = 4
-                  const offsetX = canvasRect.left - containerRect.left
-                  const offsetY = canvasRect.top - containerRect.top
-                  lens.style.left = `${x + offsetX - lensSize / 2}px`
-                  lens.style.top = `${y + offsetY - lensSize / 2}px`
-                  lens.style.width = `${lensSize}px`
-                  lens.style.height = `${lensSize}px`
-                  const bgW = canvasRect.width * zoom
-                  const bgH = canvasRect.height * zoom
-                  lens.style.backgroundSize = `${bgW}px ${bgH}px`
-                  lens.style.backgroundPosition = `-${x * zoom - lensSize / 2}px -${y * zoom - lensSize / 2}px`
-                } else {
-                  if (clickRemoveLensRef.current) clickRemoveLensRef.current.style.display = 'none'
-                }
-                if (clickRemoveMode === 'color' && pickedColor) {
-                  handleColorRectMouseMove(e)
-                }
-              }}
-              onMouseLeave={() => {
-                if (clickRemoveLensRef.current) clickRemoveLensRef.current.style.display = 'none'
-              }}
-              onMouseDown={(e) => {
-                if (clickRemoveMode === 'color' && pickedColor) handleColorRectMouseDown(e)
-              }}
-              onMouseUp={() => {
-                if (clickRemoveMode === 'color' && pickedColor) handleColorRectMouseUp()
-              }}
-            >
-              <ClickRemoveCanvas
-                canvasRef={clickRemoveCanvasRef}
-                src={getClickRemoveSource()}
-                bgColor={previewBgColor}
-                onClick={clickRemoveMode === 'flood' ? handleClickRemoveFlood
-                  : (!pickedColor ? handleColorPick : undefined)}
-              />
-              <div
-                ref={clickRemoveLensRef}
-                style={{
-                  display: 'none', position: 'absolute', pointerEvents: 'none',
-                  border: '2px solid #4CAF50', borderRadius: '50%',
-                  backgroundImage: `url(${getClickRemoveSource()})`,
-                  backgroundRepeat: 'no-repeat',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                }}
-              />
-              {colorRectStart && colorRectEnd && isDraggingRect && (() => {
-                const canvas = clickRemoveCanvasRef.current
-                const container = canvas?.parentElement
-                if (!canvas || !container) return null
-                const canvasRect = canvas.getBoundingClientRect()
-                const containerRect = container.getBoundingClientRect()
-                const sx = canvas.width / canvasRect.width
-                const sy = canvas.height / canvasRect.height
-                const offsetX = canvasRect.left - containerRect.left
-                const offsetY = canvasRect.top - containerRect.top
-                const left = Math.min(colorRectStart.x, colorRectEnd.x) / sx + offsetX
-                const top = Math.min(colorRectStart.y, colorRectEnd.y) / sy + offsetY
-                const width = Math.abs(colorRectEnd.x - colorRectStart.x) / sx
-                const height = Math.abs(colorRectEnd.y - colorRectStart.y) / sy
-                return (
-                  <div style={{
-                    position: 'absolute', left, top, width, height,
-                    border: '2px dashed #4CAF50', backgroundColor: 'rgba(76,175,80,0.15)',
-                    pointerEvents: 'none',
-                  }} />
-                )
-              })()}
-            </div>
+            >全圖去背</button>
           </div>
-        </div>
-      )}
+        }
+      />
+
+      <ClickRemoveModal
+        title="宮格圖去背"
+        target={gridClickRemoveTarget}
+        onClose={() => setGridClickRemoveTarget(null)}
+        mode={gridClickRemoveMode} setMode={setGridClickRemoveMode}
+        threshold={gridClickRemoveThreshold} setThreshold={setGridClickRemoveThreshold}
+        undoStack={gridClickRemoveUndoStack} onUndo={handleGridClickRemoveUndo}
+        pickedColor={gridPickedColor} setPickedColor={setGridPickedColor}
+        colorRectStart={gridColorRectStart} colorRectEnd={gridColorRectEnd} isDraggingRect={gridIsDraggingRect}
+        canvasRef={gridClickRemoveCanvasRef} lensRef={gridClickRemoveLensRef}
+        getSource={getGridClickRemoveSource}
+        onFloodClick={handleGridClickRemoveFlood}
+        onColorPick={handleGridColorPick}
+        onColorRectMouseDown={handleGridColorRectMouseDown}
+        onColorRectMouseMove={handleGridColorRectMouseMove}
+        onColorRectMouseUp={handleGridColorRectMouseUp}
+        previewBgColor={previewBgColor} setPreviewBgColor={setPreviewBgColor}
+      />
     </div>
   )
 }
