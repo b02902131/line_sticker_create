@@ -3,6 +3,12 @@
   padding: 20px;
 }
 
+@media (max-width: 480px) {
+  .app {
+    padding: 0;
+  }
+}
+
 .container {
   background: #ffffff;
   border-radius: 20px;
@@ -11,6 +17,7 @@
   max-width: 1200px;
   margin: 0 auto;
   border: 1px solid rgba(0, 0, 0, 0.06);
+  min-height: 100vh;
 }
 
 .title {
@@ -60,9 +67,6 @@
   letter-spacing: 0.2px;
 }
 
-.form-group input,
-.form-group textarea,
-.form-group select,
 .character-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -635,7 +639,7 @@
 
 @media (max-width: 768px) {
   .container {
-    padding: 30px 20px;
+    padding: 24px 16px;
   }
 
   .title {
@@ -643,17 +647,17 @@
   }
 
   .step-section {
-    padding: 20px;
+    padding: 20px 14px;
   }
 
   .sticker-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
   }
 
   .sticker-image {
-    width: 150px;
-    height: 150px;
+    width: 140px;
+    height: 140px;
   }
 
   .character-actions {
@@ -666,5 +670,101 @@
 
   .grid-item {
     min-width: 100%;
+  }
+
+  .character-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+
+  .btn {
+    padding: 12px 20px;
+    font-size: 0.95em;
+  }
+
+  .btn-inline {
+    padding: 8px 12px;
+    font-size: 0.82em;
+  }
+
+  .main-tab-preview {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .main-image {
+    width: 180px;
+    height: 180px;
+  }
+
+  .preview-item {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    border-radius: 0;
+    padding: 16px 12px;
+    box-shadow: none;
+    border-left: none;
+    border-right: none;
+    min-height: 100dvh;
+  }
+
+  .title {
+    font-size: 1.3em;
+  }
+
+  .step-section {
+    padding: 16px 12px;
+    border-radius: 12px;
+  }
+
+  .form-input {
+    padding: 12px 14px;
+    font-size: 0.92em;
+  }
+
+  .sticker-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .sticker-image {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+  }
+
+  .sticker-item {
+    padding: 8px;
+  }
+
+  .character-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .main-tab-preview {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .main-image {
+    width: 160px;
+    height: 160px;
+  }
+
+  .threshold-control {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .info-box {
+    padding: 14px;
+  }
+
+  .description-item {
+    padding: 14px 12px;
   }
 }

@@ -11,10 +11,8 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: #f5f7fa;
   min-height: 100vh;
-  padding: 20px;
 }
 
 #root {
-  max-width: 1200px;
-  margin: 0 auto;
+  min-height: 100vh;
 }
