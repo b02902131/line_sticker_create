@@ -470,7 +470,7 @@ export default function ImportPipelinePage({ setPage }) {
               <img
                 src={uploadedGridImage}
                 alt="已上傳宮格圖"
-                style={{ maxWidth: '100%', maxHeight: '300px', objectFit: 'contain', borderRadius: '4px' }}
+                style={{ maxWidth: '100%', maxHeight: 'min(300px, 40vw)', objectFit: 'contain', borderRadius: '4px' }}
               />
               <div style={{ marginTop: '8px', color: '#555' }}>
                 已上傳宮格圖 — 可重新拖曳/選檔覆蓋
@@ -484,7 +484,7 @@ export default function ImportPipelinePage({ setPage }) {
           )}
         </div>
 
-        <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+        <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <label className="btn btn-secondary btn-inline" style={{ cursor: 'pointer' }}>
             選擇宮格圖
             <input
@@ -496,16 +496,19 @@ export default function ImportPipelinePage({ setPage }) {
             />
           </label>
           {uploadedGridImage && (
-            <button
-              className="btn btn-secondary btn-inline"
-              style={{ color: '#e74c3c' }}
-              onClick={() => {
-                setUploadedGridImage(null)
-                reset()
-              }}
-            >
-              清除
-            </button>
+            <>
+              <button
+                className="btn btn-secondary btn-inline"
+                style={{ color: '#e74c3c' }}
+                onClick={() => {
+                  setUploadedGridImage(null)
+                  reset()
+                }}
+              >
+                清除
+              </button>
+              <span style={{ color: '#888', fontSize: '0.82em' }}>↓ 往下設定去背策略</span>
+            </>
           )}
         </div>
       </div>
