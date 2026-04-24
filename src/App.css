@@ -767,4 +767,14 @@
   .description-item {
     padding: 14px 12px;
   }
+
+  .click-remove-modal-inner {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+
+  .click-remove-modal-controls {
+    width: 100% !important;
+    min-width: unset !important;
+  }
 }

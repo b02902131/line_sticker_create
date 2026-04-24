@@ -58,13 +58,13 @@ function ClickRemoveModal({
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div style={{
+      <div className="click-remove-modal-inner" style={{
         background: '#fff', borderRadius: '12px', padding: '20px',
         maxWidth: '95vw', maxHeight: '90vh', width: '95vw',
         display: 'flex', gap: '16px', overflow: 'hidden',
       }}>
         {/* Left control panel */}
-        <div style={{ width: '280px', minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}>
+        <div className="click-remove-modal-controls" style={{ width: '280px', minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ margin: 0, fontSize: '16px' }}>{title}</h3>
             <div style={{ display: 'flex', gap: '6px' }}>
