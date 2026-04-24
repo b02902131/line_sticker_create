@@ -15,6 +15,7 @@ backlogs
 ## done
 
 ### 0424
+- [x] 手機 web app 自適應：RWD 調整 — 移除多餘 body padding、container 撐滿 viewport、480px 邊到邊、修正 CSS selector 合併 bug
 - [x] 實作 Import Pipeline：`splitGridNxM` 泛化 + `ImportPipelinePage` + App 路由接上
   - `canvasUtils.js`：新增 `splitGridNxM(url, cols, rows, cellW, cellH)` 通用版；`splitGrid8` 保持不變；`cropSingleCell` 加 `cols`/`rows` 參數（預設 2/4 向後相容）
   - `CropAdjustPanel`：加 `cols`/`rows` props（預設 2/4）供 NxM grid 使用
