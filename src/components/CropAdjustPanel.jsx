@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 
-function CropAdjustPanel({ gridSrc, cellRow, cellCol, cellW, cellH, initialOffset, initialZoom, onConfirm, onCancel }) {
+function CropAdjustPanel({ gridSrc, cellRow, cellCol, cellW, cellH, initialOffset, initialZoom, onConfirm, onCancel, cols = 2, rows = 4 }) {
   const canvasRef = useRef(null)
   const imgRef = useRef(null)
   const [offset, setOffset] = useState(initialOffset || { x: 0, y: 0 })
@@ -24,10 +24,10 @@ function CropAdjustPanel({ gridSrc, cellRow, cellCol, cellW, cellH, initialOffse
     ctx.drawImage(img, 0, 0)
 
     // 計算實際 cell 尺寸（含縮放）
-    const baseCellW = img.width / 2
-    const baseCellH = img.height / 4
-    const sx = img.width / (cellW * 2)
-    const sy = img.height / (cellH * 4)
+    const baseCellW = img.width / cols
+    const baseCellH = img.height / rows
+    const sx = img.width / (cellW * cols)
+    const sy = img.height / (cellH * rows)
     const cropW = baseCellW * zoom
     const cropH = baseCellH * zoom
     // 保持中心點
@@ -58,7 +58,7 @@ function CropAdjustPanel({ gridSrc, cellRow, cellCol, cellW, cellH, initialOffse
     ctx.lineTo(cropX + cropW, centerY)
     ctx.stroke()
     ctx.setLineDash([])
-  }, [gridSrc, cellRow, cellCol, cellW, cellH, offset, zoom])
+  }, [gridSrc, cellRow, cellCol, cellW, cellH, cols, rows, offset, zoom])
 
   // 載入圖片
   useEffect(() => {
@@ -80,8 +80,8 @@ function CropAdjustPanel({ gridSrc, cellRow, cellCol, cellW, cellH, initialOffse
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
     // 螢幕像素 → logical offset
-    const dx = (e.clientX - dragStart.current.x) * (cellW * 2) / rect.width
-    const dy = (e.clientY - dragStart.current.y) * (cellH * 4) / rect.height
+    const dx = (e.clientX - dragStart.current.x) * (cellW * cols) / rect.width
+    const dy = (e.clientY - dragStart.current.y) * (cellH * rows) / rect.height
     setOffset({ x: Math.round(dragStart.current.ox + dx), y: Math.round(dragStart.current.oy + dy) })
   }
   const handlePointerUp = () => { setDragging(false); dragStart.current = null }

@@ -8,6 +8,8 @@ export default function GridMultiCropAdjustPanel({
   visibleCount,
   cellW,
   cellH,
+  cols = 2,
+  rows = 4,
   initialAdjustments,
   onApply,
   onCancel,
@@ -35,15 +37,15 @@ export default function GridMultiCropAdjustPanel({
     const img = imgRef.current
     if (!canvas || !img || !img.complete) return []
 
-    const baseCellW = img.width / 2
-    const baseCellH = img.height / 4
-    const sx = img.width / (cellW * 2)
-    const sy = img.height / (cellH * 4)
+    const baseCellW = img.width / cols
+    const baseCellH = img.height / rows
+    const sx = img.width / (cellW * cols)
+    const sy = img.height / (cellH * rows)
 
     const rects = []
     for (let i = 0; i < visibleCount; i++) {
-      const row = Math.floor(i / 2)
-      const col = i % 2
+      const row = Math.floor(i / cols)
+      const col = i % cols
       const { x, y, zoom } = cells[i] || { x: 0, y: 0, zoom: 1 }
       const cropW = baseCellW * zoom
       const cropH = baseCellH * zoom
@@ -58,7 +60,7 @@ export default function GridMultiCropAdjustPanel({
       })
     }
     return rects
-  }, [cells, cellW, cellH, visibleCount])
+  }, [cells, cellW, cellH, cols, rows, visibleCount])
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current
@@ -159,8 +161,8 @@ export default function GridMultiCropAdjustPanel({
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const dx = (e.clientX - dragStart.current.x) * (cellW * 2) / rect.width
-    const dy = (e.clientY - dragStart.current.y) * (cellH * 4) / rect.height
+    const dx = (e.clientX - dragStart.current.x) * (cellW * cols) / rect.width
+    const dy = (e.clientY - dragStart.current.y) * (cellH * rows) / rect.height
 
     setCells(prev => prev.map((c, i) => {
       if (!selected.has(i)) return c
@@ -239,7 +241,7 @@ export default function GridMultiCropAdjustPanel({
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: '16px' }}>八宮格批次微調（8 個裁切筐）</div>
+            <div style={{ fontWeight: 800, fontSize: '16px' }}>批次裁切微調（{visibleCount} 個裁切筐）</div>
             <div style={{ fontSize: '12px', color: '#666' }}>
               點選裁切筐；Shift/⌘ 可複選；拖曳可移動（多選一起動）；滾輪或 +/- 可縮放；方向鍵微調；Enter 套用
             </div>
@@ -283,15 +285,24 @@ export default function GridMultiCropAdjustPanel({
             <div style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
               已選：{Array.from(selected).sort((a, b) => a - b).map(i => i + 1).join(', ')}
             </div>
-            <button
-              className="btn btn-secondary"
-              style={{ marginTop: '10px', width: '100%' }}
-              onClick={() => {
-                setCells(prev => prev.map((c, i) => selected.has(i) ? { ...c, x: 0, y: 0, zoom: 1 } : c))
-              }}
-            >
-              重置已選
-            </button>
+            <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ flex: 1 }}
+                onClick={() => setSelected(new Set(Array.from({ length: visibleCount }, (_, i) => i)))}
+              >
+                全選
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ flex: 1 }}
+                onClick={() => {
+                  setCells(prev => prev.map((c, i) => selected.has(i) ? { ...c, x: 0, y: 0, zoom: 1 } : c))
+                }}
+              >
+                重置已選
+              </button>
+            </div>
           </div>
         </div>
       </div>

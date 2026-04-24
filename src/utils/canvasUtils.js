@@ -268,6 +268,72 @@ export async function removeGridLines(gridImageDataUrl, cellWidth = 370, cellHei
 }
 
 /**
+ * 通用版：裁切 N×M 宮格圖片為單獨的圖片（不做間隔線移除）
+ * @param {string} gridImageDataUrl - 宮格圖片的 Data URL
+ * @param {number} cols - 列數（x 方向）
+ * @param {number} rows - 行數（y 方向）
+ * @param {number} cellWidth - 每格寬度（來源圖的格子寬）
+ * @param {number} cellHeight - 每格高度（來源圖的格子高）
+ * @param {number|null} outputCellWidth - 輸出寬（null = 與 cellWidth 相同）
+ * @param {number|null} outputCellHeight - 輸出高（null = 與 cellHeight 相同）
+ * @returns {Promise<Array<string>>} 裁切後的圖片陣列（Data URL），row-major order
+ */
+export async function splitGridNxM(gridImageDataUrl, cols, rows, cellWidth, cellHeight, outputCellWidth = null, outputCellHeight = null) {
+  const outW = outputCellWidth || cellWidth
+  const outH = outputCellHeight || cellHeight
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+
+    img.onload = () => {
+      const expectedWidth = cellWidth * cols
+      const expectedHeight = cellHeight * rows
+
+      let sourceImg = img
+      let sourceCanvas = null
+
+      if (img.width !== expectedWidth || img.height !== expectedHeight) {
+        console.warn(`宮格圖片尺寸不準確: ${img.width}×${img.height}, 預期: ${expectedWidth}×${expectedHeight}, 將調整為標準尺寸`)
+        sourceCanvas = document.createElement('canvas')
+        sourceCanvas.width = expectedWidth
+        sourceCanvas.height = expectedHeight
+        const sourceCtx = sourceCanvas.getContext('2d')
+        sourceCtx.drawImage(img, 0, 0, expectedWidth, expectedHeight)
+        sourceImg = sourceCanvas
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = outW
+      canvas.height = outH
+      const ctx = canvas.getContext('2d')
+
+      const cells = []
+
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const x = col * cellWidth
+          const y = row * cellHeight
+
+          ctx.clearRect(0, 0, outW, outH)
+          ctx.drawImage(
+            sourceImg,
+            x, y, cellWidth, cellHeight,
+            0, 0, outW, outH
+          )
+
+          cells.push(canvas.toDataURL('image/png'))
+        }
+      }
+
+      resolve(cells)
+    }
+
+    img.onerror = reject
+    img.src = gridImageDataUrl
+  })
+}
+
+/**
  * 裁切 8 宮格圖片為單獨的圖片
  * @param {string} gridImageDataUrl - 8 宮格圖片的 Data URL
  * @param {number} cellWidth - 每格寬度
@@ -341,25 +407,28 @@ export async function splitGrid8(gridImageDataUrl, cellWidth = 370, cellHeight =
 }
 
 /**
- * 從 8 宮格圖片裁切單一格，支援自訂偏移量
- * @param {string} gridImageDataUrl - 8 宮格圖片 Data URL
- * @param {number} cellRow - 第幾行（0-3）
- * @param {number} cellCol - 第幾列（0-1）
+ * 從 N×M 宮格圖片裁切單一格，支援自訂偏移量
+ * @param {string} gridImageDataUrl - 宮格圖片 Data URL
+ * @param {number} cellRow - 第幾行（0-indexed）
+ * @param {number} cellCol - 第幾列（0-indexed）
  * @param {number} cellWidth - 來源格子寬
  * @param {number} cellHeight - 來源格子高
  * @param {number} outputWidth - 輸出寬
  * @param {number} outputHeight - 輸出高
  * @param {number} offsetX - X 偏移（像素）
  * @param {number} offsetY - Y 偏移（像素）
+ * @param {number} zoom - 縮放倍率
+ * @param {number} cols - 總列數（預設 2，向後相容）
+ * @param {number} rows - 總行數（預設 4，向後相容）
  * @returns {Promise<string>} 裁切後的圖片 Data URL
  */
-export async function cropSingleCell(gridImageDataUrl, cellRow, cellCol, cellWidth, cellHeight, outputWidth, outputHeight, offsetX = 0, offsetY = 0, zoom = 1) {
+export async function cropSingleCell(gridImageDataUrl, cellRow, cellCol, cellWidth, cellHeight, outputWidth, outputHeight, offsetX = 0, offsetY = 0, zoom = 1, cols = 2, rows = 4) {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
-      const expectedW = cellWidth * 2
-      const expectedH = cellHeight * 4
+      const expectedW = cellWidth * cols
+      const expectedH = cellHeight * rows
       const scaleX = img.width / expectedW
       const scaleY = img.height / expectedH
       const baseCellW = cellWidth * scaleX
