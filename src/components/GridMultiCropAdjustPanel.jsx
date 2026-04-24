@@ -133,47 +133,55 @@ export default function GridMultiCropAdjustPanel({
     const pt = canvasPointToImagePoint(e)
     if (!pt) return
     const hit = hitTest(pt)
-    if (hit === null) return
-
-    setSelected(prev => {
-      const next = new Set(prev)
-      const isMulti = e.shiftKey || e.metaKey || e.ctrlKey
-      if (isMulti) {
-        if (next.has(hit)) next.delete(hit)
-        else next.add(hit)
-        if (next.size === 0) next.add(hit)
-        return next
-      }
-      return new Set([hit])
-    })
-
-    dragging.current = true
     dragStart.current = {
       x: e.clientX,
       y: e.clientY,
+      hit: hit ?? null,
       cells: cells.map(c => ({ ...c })),
+      moved: false,
     }
+    dragging.current = false
     e.currentTarget.setPointerCapture(e.pointerId)
   }
 
   const handlePointerMove = (e) => {
-    if (!dragging.current || !dragStart.current) return
+    if (!dragStart.current) return
+    const dx = e.clientX - dragStart.current.x
+    const dy = e.clientY - dragStart.current.y
+    if (!dragging.current && Math.abs(dx) + Math.abs(dy) > 8) {
+      dragging.current = true
+      dragStart.current.moved = true
+    }
+    if (!dragging.current) return
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const dx = (e.clientX - dragStart.current.x) * (cellW * cols) / rect.width
-    const dy = (e.clientY - dragStart.current.y) * (cellH * rows) / rect.height
-
+    const ddx = dx * (cellW * cols) / rect.width
+    const ddy = dy * (cellH * rows) / rect.height
     setCells(prev => prev.map((c, i) => {
       if (!selected.has(i)) return c
       const base = dragStart.current.cells[i]
-      return { ...c, x: Math.round(base.x + dx), y: Math.round(base.y + dy) }
+      return { ...c, x: Math.round(base.x + ddx), y: Math.round(base.y + ddy) }
     }))
   }
 
   const handlePointerUp = () => {
+    const wasDrag = dragStart.current?.moved
+    const hit = dragStart.current?.hit
     dragging.current = false
     dragStart.current = null
+    if (!wasDrag && hit !== null && hit !== undefined) {
+      // Tap: toggle this box in/out of selection
+      setSelected(prev => {
+        const next = new Set(prev)
+        if (next.has(hit)) {
+          if (next.size > 1) next.delete(hit)
+        } else {
+          next.add(hit)
+        }
+        return next
+      })
+    }
   }
 
   const handleWheel = useCallback((e) => {
@@ -285,6 +293,32 @@ export default function GridMultiCropAdjustPanel({
             <div style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
               已選：{Array.from(selected).sort((a, b) => a - b).map(i => i + 1).join(', ')}
             </div>
+
+            {/* Arrow pad for mobile drag */}
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '6px' }}>移動（已選筐）</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 36px)', gridTemplateRows: 'repeat(3, 36px)', gap: '4px', width: 'fit-content' }}>
+                {[
+                  [null, '↑', null],
+                  ['←', '·', '→'],
+                  [null, '↓', null],
+                ].map((row, ri) => row.map((label, ci) => label ? (
+                  <button
+                    key={`${ri}-${ci}`}
+                    className="btn btn-secondary"
+                    style={{ padding: 0, fontSize: '16px', width: '36px', height: '36px' }}
+                    onClick={() => {
+                      const step = 5
+                      const d = label === '↑' ? { x: 0, y: -step } : label === '↓' ? { x: 0, y: step } : label === '←' ? { x: -step, y: 0 } : { x: step, y: 0 }
+                      setCells(prev => prev.map((c, i) => selected.has(i) ? { ...c, x: c.x + d.x, y: c.y + d.y } : c))
+                    }}
+                  >{label}</button>
+                ) : (
+                  <div key={`${ri}-${ci}`} />
+                )))}
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
               <button
                 className="btn btn-secondary"
