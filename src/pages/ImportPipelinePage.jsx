@@ -37,7 +37,7 @@ function ClickRemoveCanvas({ canvasRef, src, bgColor, onClick }) {
 }
 
 function ClickRemoveModal({
-  title, target, onClose,
+  title, target, onClose, onConfirm,
   mode, setMode,
   threshold, setThreshold,
   undoStack, onUndo,
@@ -70,6 +70,10 @@ function ClickRemoveModal({
             <div style={{ display: 'flex', gap: '6px' }}>
               <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '4px 8px' }}
                 disabled={undoStack.length === 0} onClick={onUndo}>復原</button>
+              {onConfirm && (
+                <button className="btn btn-primary" style={{ fontSize: '12px', padding: '4px 8px' }}
+                  onClick={onConfirm}>完成 →</button>
+              )}
               <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '4px 8px' }}
                 onClick={onClose}>關閉</button>
             </div>
@@ -1159,6 +1163,7 @@ export default function ImportPipelinePage({ setPage }) {
         title="宮格圖去背"
         target={gridClickRemoveTarget}
         onClose={() => setGridClickRemoveTarget(null)}
+        onConfirm={() => { setGridClickRemoveTarget(null); handleSplit() }}
         mode={gridClickRemoveMode} setMode={setGridClickRemoveMode}
         threshold={gridClickRemoveThreshold} setThreshold={setGridClickRemoveThreshold}
         undoStack={gridClickRemoveUndoStack} onUndo={handleGridClickRemoveUndo}
