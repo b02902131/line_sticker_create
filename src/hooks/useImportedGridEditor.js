@@ -70,7 +70,7 @@ export function useImportedGridEditor({
   const totalCells = gridCols * gridRows
 
   // ---- Split ----
-  const handleSplit = useCallback(async () => {
+  const handleSplit = useCallback(async ({ bgStrategyOverride } = {}) => {
     if (!uploadedGridImage) return
     setSplitting(true)
     setProgress('切割中...')
@@ -80,11 +80,12 @@ export function useImportedGridEditor({
       setExcludedCells(new Set())
       setCropAdjustHistory({})
 
-      if (bgStrategy === 'none') {
+      const effectiveBgStrategy = bgStrategyOverride ?? bgStrategy
+      if (effectiveBgStrategy === 'none') {
         setProcessedCells(cells)
       } else {
         setProgress('去背中...')
-        const bgColor = bgStrategy === 'color' ? manualBgColor : chromaKeyBgColor
+        const bgColor = effectiveBgStrategy === 'color' ? manualBgColor : chromaKeyBgColor
         const processed = []
         for (let i = 0; i < cells.length; i++) {
           processed.push(

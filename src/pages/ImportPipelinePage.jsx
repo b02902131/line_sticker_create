@@ -1150,7 +1150,7 @@ export default function ImportPipelinePage({ setPage }) {
         title="宮格圖去背"
         target={gridClickRemoveTarget}
         onClose={() => setGridClickRemoveTarget(null)}
-        onConfirm={() => { setGridClickRemoveTarget(null); handleSplit() }}
+        onConfirm={() => { setGridClickRemoveTarget(null); handleSplit({ bgStrategyOverride: 'none' }) }}
         mode={gridClickRemoveMode} setMode={setGridClickRemoveMode}
         threshold={gridClickRemoveThreshold} setThreshold={setGridClickRemoveThreshold}
         undoStack={gridClickRemoveUndoStack} onUndo={handleGridClickRemoveUndo}
