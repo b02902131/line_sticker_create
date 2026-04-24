@@ -3,31 +3,35 @@
 ## Project Overview
 LINE 貼圖製作工具（React + Vite），從角色設定→AI 生成貼圖→去背→裁切→打包下載的一站式流程。使用 Gemini API 生成圖片描述與文字風格，Imagen API 生成角色和貼圖圖片（也支援 gpt-image-2）。資料存 localStorage + IndexedDB，並透過 vite-plugin-local-save 同步到本地檔案。Outputs go/nogo sticker images, zip downloads.
 
-## Handoff — 2026-04-24
+## Handoff — 2026-04-24 (afternoon)
 
 ### Branch: `main`
 
-### What was done (本次重構 session)
-- refactor: extract CropAdjustPanel to components/
-- refactor: extract TabCropper to components/
-- refactor: extract useSingleImageEditor hook for main/tab image logic
-- refactor: extract useGridEditor hook for 8-grid image logic
-- refactor: extract useStickerEditor hook for single-sticker regen/bg-remove
-- refactor: extract useDescriptionsEditor hook + StickerPreviewGrid component
-- refactor: extract useAnimationEditor hook
-- refactor: extract useClickRemoveEditor hook for click-to-remove-bg logic
-- refactor: split imageUtils into focused modules (bgRemoval.js, canvasUtils.js, barrel re-export in imageUtils.js)
-- refactor: extract StickerProducePage JSX to pages/ (~1155 lines JSX extracted)
-- App.jsx: 4225 → 1557 lines (-63%, -2668 lines)
-- Maintainability score: 62 → ~95
+### What was done
+- **宮格圖匯入（Import Pipeline）** 完整實作：上傳外部宮格圖 → NxM 分割 → 去背 → 裁切微調 → 主/tab 圖 → zip
+- `canvasUtils.js`：新增 `splitGridNxM(url, cols, rows, cellW, cellH)`；`splitGrid8` 保持向後相容
+- `CropAdjustPanel` / `GridMultiCropAdjustPanel`：加 `cols`/`rows` props，支援任意 NxM
+- 新建 `src/hooks/useImportedGridEditor.js`：管理 split/bg-remove/crop/exclude 狀態
+- 新建 `src/pages/ImportPipelinePage.jsx`：完整 5-section UI，含「全格裁切編輯」+ 每格 flood/框選去背（useClickRemoveEditor）
+- App.jsx：`import-pipeline` 路由 + HomePage「宮格圖匯入」按鈕（已 grouping 三顆按鈕）
+- 手動指定背景色模式加容差輸入
+- GridMultiCropAdjustPanel 加「全選」按鈕
 
 ### Current state
-- Extracted components: CropAdjustPanel, TabCropper, GridMultiCropAdjustPanel, StickerPreviewGrid
-- Extracted hooks: useSingleImageEditor, useGridEditor, useStickerEditor, useDescriptionsEditor, useClickRemoveEditor, useAnimationEditor
-- Extracted pages: StickerProducePage
-- imageUtils split into: bgRemoval.js, canvasUtils.js (barrel re-export in imageUtils.js)
-- App.jsx still has: CharacterCreatePage (~300 lines JSX) + HomePage (~100 lines JSX)
-- All hooks use `generateFn` injection pattern (same as useSingleImageEditor)
+- 兩條產線並存：AI Full Pipeline（StickerProducePage）+ Import Pipeline（ImportPipelinePage）
+- Import Pipeline 功能完整，待使用者實際驗收
+- App.jsx 仍有 CharacterCreatePage (~300 lines) + HomePage (~100 lines) 未抽（低優先）
+
+### What's next
+- 驗收 gpt-image-2 串接：手動測試 OpenAI engine 生圖完整流程
+- 驗收動圖功能：GIF 製作 modal、幀選擇、速度調整、下載
+
+### Key context for next session
+- Import Pipeline 入口：HomePage「宮格圖匯入」按鈕（不需要先建角色）
+- 去背方式全局設計原則：所有去背（auto/color/none batch + flood + 框選）都應在所有地方可選，目前 Import Pipeline 格子已完整支援，AI 產線維持原樣
+- `GridMultiCropAdjustPanel`：`cols`/`rows` props 預設 2/4，AI 產線不用改
+- deploy 指令：`npm run deploy`（先 predeploy build → gh-pages -d dist）
+- dev server 需要 Node.js 20+，Vite 7
 - Backward-compatible aliases kept in App.jsx for all hook state — save/load paths unchanged
 
 ### What's next
