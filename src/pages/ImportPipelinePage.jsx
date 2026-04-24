@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useImportedGridEditor } from '../hooks/useImportedGridEditor'
 import { useClickRemoveEditor } from '../hooks/useClickRemoveEditor'
+import { useImportPipelineStorage } from '../hooks/useImportPipelineStorage'
 import CropAdjustPanel from '../components/CropAdjustPanel'
 import GridMultiCropAdjustPanel from '../components/GridMultiCropAdjustPanel'
 import { downloadAsZip, fitToSize } from '../utils/zipDownloader'
@@ -271,6 +272,101 @@ export default function ImportPipelinePage({ setPage }) {
     gridImages: [],
   })
 
+  // ---- localStorage persistence ----
+  const { save, load, clear } = useImportPipelineStorage()
+  const [restoring, setRestoring] = useState(false)
+
+  // Save to localStorage whenever relevant state changes
+  useEffect(() => {
+    save({
+      uploadedGridImage,
+      gridCols,
+      gridRows,
+      cellW,
+      cellH,
+      stickerTypeKey,
+      bgStrategy,
+      chromaKeyBgColor,
+      manualBgColor,
+      backgroundThreshold,
+      excludedCells: [...excludedCells],
+      mainImage,
+      tabImage,
+    })
+  }, [
+    uploadedGridImage, gridCols, gridRows, cellW, cellH, stickerTypeKey,
+    bgStrategy, chromaKeyBgColor, manualBgColor, backgroundThreshold,
+    excludedCells, mainImage, tabImage, save,
+  ])
+
+  // Restore from localStorage on first mount
+  useEffect(() => {
+    const saved = load()
+    if (!saved || !saved.uploadedGridImage) return
+
+    setRestoring(true)
+
+    // Restore all settings first
+    if (saved.stickerTypeKey) setStickerTypeKey(saved.stickerTypeKey)
+    if (saved.gridCols) setGridCols(saved.gridCols)
+    if (saved.gridRows) setGridRows(saved.gridRows)
+    if (saved.cellW) setCellW(saved.cellW)
+    if (saved.cellH) setCellH(saved.cellH)
+    if (saved.bgStrategy) setBgStrategy(saved.bgStrategy)
+    if (saved.chromaKeyBgColor) setChromaKeyBgColor(saved.chromaKeyBgColor)
+    if (saved.manualBgColor) setManualBgColor(saved.manualBgColor)
+    if (saved.backgroundThreshold != null) setBackgroundThreshold(saved.backgroundThreshold)
+    if (saved.mainImage) setMainImage(saved.mainImage)
+    if (saved.tabImage) setTabImage(saved.tabImage)
+
+    // Restore grid image — handleSplit will be triggered via the ref below
+    setUploadedGridImage(saved.uploadedGridImage)
+
+    // Store excluded cells for after split completes
+    pendingRestoreRef.current = {
+      excludedCells: saved.excludedCells || [],
+      cols: saved.gridCols,
+      rows: saved.gridRows,
+      cellW: saved.cellW,
+      cellH: saved.cellH,
+      bgStrategy: saved.bgStrategy,
+      chromaKeyBgColor: saved.chromaKeyBgColor,
+      manualBgColor: saved.manualBgColor,
+      backgroundThreshold: saved.backgroundThreshold,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // run once on mount only
+
+  const pendingRestoreRef = useRef(null)
+  const hasRestoredSplitRef = useRef(false)
+
+  // Once uploadedGridImage is populated from restore, trigger split
+  useEffect(() => {
+    if (!pendingRestoreRef.current || !uploadedGridImage || hasRestoredSplitRef.current) return
+    hasRestoredSplitRef.current = true
+    const pending = pendingRestoreRef.current
+    pendingRestoreRef.current = null
+
+    // Run split with restored settings (they are already set in state above)
+    handleSplit().then(() => {
+      // After split, restore excludedCells
+      if (pending.excludedCells && pending.excludedCells.length > 0) {
+        // toggleExcluded is per-cell; restore by setting directly via setExcludedCells if exposed
+        // We use the toggleExcluded approach since setExcludedCells is not exposed
+        pending.excludedCells.forEach(i => toggleExcluded(i))
+      }
+      setRestoring(false)
+    }).catch(() => setRestoring(false))
+  }, [uploadedGridImage, handleSplit, toggleExcluded])
+
+  const handleClearStorage = useCallback(() => {
+    clear()
+    setUploadedGridImage(null)
+    reset()
+    hasRestoredSplitRef.current = false
+    pendingRestoreRef.current = null
+  }, [clear, setUploadedGridImage, reset])
+
   // ---- Drag-drop state ----
   const [dragging, setDragging] = useState(false)
 
@@ -381,7 +477,27 @@ export default function ImportPipelinePage({ setPage }) {
         <span style={{ color: '#888', fontSize: '0.85em' }}>
           上傳外部製作的宮格圖 → 去背分割 → 微調 → zip 下載
         </span>
+        <button
+          className="btn btn-secondary btn-inline"
+          style={{ marginLeft: 'auto', fontSize: '0.8em', color: '#e74c3c' }}
+          onClick={handleClearStorage}
+          title="清除 localStorage 儲存的進度，重新開始"
+        >
+          清除記錄
+        </button>
       </div>
+
+      {/* Restoring banner */}
+      {restoring && (
+        <div style={{
+          background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '6px',
+          padding: '10px 14px', marginBottom: '12px',
+          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9em',
+        }}>
+          <span style={{ fontSize: '1.2em' }}>⏳</span>
+          <span>找到上次進度，自動還原中... 正在重新分割去背，請稍候</span>
+        </div>
+      )}
 
       {/* Section 1: Upload grid + settings */}
       <div className="step-section" style={{ background: '#fafafa', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
