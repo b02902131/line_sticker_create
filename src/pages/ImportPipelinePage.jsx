@@ -381,6 +381,7 @@ export default function ImportPipelinePage({ setPage }) {
 
   // ---- Multi-crop panel ----
   const [showMultiCrop, setShowMultiCrop] = useState(false)
+  const [cellMenuOpen, setCellMenuOpen] = useState(null)
 
   // ---- Main / Tab upload refs ----
   const mainUploadRef = useRef(null)
@@ -828,10 +829,58 @@ export default function ImportPipelinePage({ setPage }) {
                       排除
                     </div>
                   )}
+                  {/* ⋯ action button */}
+                  <button
+                    style={{
+                      position: 'absolute', bottom: '2px', right: '2px',
+                      background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none',
+                      borderRadius: '3px', padding: '1px 6px', fontSize: '14px', cursor: 'pointer', lineHeight: 1.4,
+                    }}
+                    onClick={(e) => { e.stopPropagation(); setCellMenuOpen(i) }}
+                  >⋯</button>
                 </div>
               )
             })}
           </div>
+
+          {/* Cell action sheet */}
+          {cellMenuOpen !== null && (
+            <div
+              style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+              onClick={() => setCellMenuOpen(null)}
+            >
+              <div
+                style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: '16px', width: '100%', maxWidth: '500px', paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div style={{ fontWeight: 700, marginBottom: '12px', fontSize: '15px' }}>格子 {cellMenuOpen + 1} — 操作</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <button className="btn btn-secondary" disabled={removingBgCell === cellMenuOpen}
+                    onClick={() => { handleRemoveBgSingleCell(cellMenuOpen); setCellMenuOpen(null) }}>
+                    {removingBgCell === cellMenuOpen ? '去背中...' : '重新去背'}
+                  </button>
+                  <button className="btn btn-secondary"
+                    onClick={() => { setClickRemoveUndoStack([]); setPickedColor(null); setClickRemoveTarget({ index: cellMenuOpen, type: 'sticker' }); setCellMenuOpen(null) }}>
+                    選去（點擊/框選去背）
+                  </button>
+                  <button className="btn btn-secondary"
+                    onClick={() => { handleOpenCropAdjust(cellMenuOpen); setCellMenuOpen(null) }}>
+                    裁切微調
+                  </button>
+                  <button className="btn btn-secondary"
+                    onClick={() => { handleSelectCellAsMain(cellMenuOpen); setCellMenuOpen(null) }}>
+                    設為主圖
+                  </button>
+                  <button className="btn btn-secondary"
+                    onClick={() => { handleSelectCellAsTab(cellMenuOpen); setCellMenuOpen(null) }}>
+                    設為 tab 圖
+                  </button>
+                  <button className="btn btn-secondary" style={{ color: '#e74c3c' }}
+                    onClick={() => setCellMenuOpen(null)}>取消</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Multi-crop button */}
           <div style={{ marginTop: '12px', marginBottom: '8px' }}>
@@ -847,67 +896,6 @@ export default function ImportPipelinePage({ setPage }) {
             </span>
           </div>
 
-          {/* Per-cell actions */}
-          <div style={{ marginTop: '4px' }}>
-            <div style={{ fontSize: '0.85em', color: '#666', marginBottom: '8px' }}>
-              每格微調（去背 / 裁切）：
-            </div>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-              gap: '4px',
-            }}>
-              {processedCells.map((cell, i) => (
-                <div key={i} style={{ display: 'flex', gap: '4px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                  <button
-                    className="btn btn-secondary btn-inline"
-                    style={{ fontSize: '0.75em', padding: '3px 6px' }}
-                    disabled={removingBgCell === i}
-                    onClick={() => handleRemoveBgSingleCell(i)}
-                    title="重新去背此格"
-                  >
-                    {removingBgCell === i ? '...' : '去背'}
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-inline"
-                    style={{ fontSize: '0.75em', padding: '3px 6px' }}
-                    onClick={() => {
-                      setClickRemoveUndoStack([])
-                      setPickedColor(null)
-                      setClickRemoveTarget({ index: i, type: 'sticker' })
-                    }}
-                    title="點擊/框選去背"
-                  >
-                    選去
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-inline"
-                    style={{ fontSize: '0.75em', padding: '3px 6px' }}
-                    onClick={() => handleOpenCropAdjust(i)}
-                    title="裁切微調"
-                  >
-                    微調
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-inline"
-                    style={{ fontSize: '0.75em', padding: '3px 6px', whiteSpace: 'nowrap' }}
-                    onClick={() => handleSelectCellAsMain(i)}
-                    title="設為主圖"
-                  >
-                    主圖
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-inline"
-                    style={{ fontSize: '0.75em', padding: '3px 6px', whiteSpace: 'nowrap' }}
-                    onClick={() => handleSelectCellAsTab(i)}
-                    title="設為 tab 圖"
-                  >
-                    tab
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
