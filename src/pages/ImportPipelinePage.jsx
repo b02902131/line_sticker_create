@@ -280,8 +280,9 @@ export default function ImportPipelinePage({ setPage }) {
   const { save, load, clear } = useImportPipelineStorage()
   const [restoring, setRestoring] = useState(false)
 
-  // Save to localStorage whenever relevant state changes
+  // Save to IndexedDB whenever relevant state changes (only when image is loaded)
   useEffect(() => {
+    if (!uploadedGridImage) return
     save({
       uploadedGridImage,
       gridCols,
