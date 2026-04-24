@@ -294,31 +294,6 @@ export default function GridMultiCropAdjustPanel({
               已選：{Array.from(selected).sort((a, b) => a - b).map(i => i + 1).join(', ')}
             </div>
 
-            {/* Arrow pad for mobile drag */}
-            <div style={{ marginTop: '10px' }}>
-              <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '6px' }}>移動（已選筐）</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 36px)', gridTemplateRows: 'repeat(3, 36px)', gap: '4px', width: 'fit-content' }}>
-                {[
-                  [null, '↑', null],
-                  ['←', '·', '→'],
-                  [null, '↓', null],
-                ].map((row, ri) => row.map((label, ci) => label ? (
-                  <button
-                    key={`${ri}-${ci}`}
-                    className="btn btn-secondary"
-                    style={{ padding: 0, fontSize: '16px', width: '36px', height: '36px' }}
-                    onClick={() => {
-                      const step = 5
-                      const d = label === '↑' ? { x: 0, y: -step } : label === '↓' ? { x: 0, y: step } : label === '←' ? { x: -step, y: 0 } : { x: step, y: 0 }
-                      setCells(prev => prev.map((c, i) => selected.has(i) ? { ...c, x: c.x + d.x, y: c.y + d.y } : c))
-                    }}
-                  >{label}</button>
-                ) : (
-                  <div key={`${ri}-${ci}`} />
-                )))}
-              </div>
-            </div>
-
             <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
               <button
                 className="btn btn-secondary"
