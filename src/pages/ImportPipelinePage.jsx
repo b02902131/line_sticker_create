@@ -303,41 +303,39 @@ export default function ImportPipelinePage({ setPage }) {
     excludedCells, mainImage, tabImage, save,
   ])
 
-  // Restore from localStorage on first mount
+  // Restore from IndexedDB on first mount
   useEffect(() => {
-    const saved = load()
-    if (!saved || !saved.uploadedGridImage) return
+    load().then((saved) => {
+      if (!saved || !saved.uploadedGridImage) return
 
-    setRestoring(true)
+      setRestoring(true)
 
-    // Restore all settings first
-    if (saved.stickerTypeKey) setStickerTypeKey(saved.stickerTypeKey)
-    if (saved.gridCols) setGridCols(saved.gridCols)
-    if (saved.gridRows) setGridRows(saved.gridRows)
-    if (saved.cellW) setCellW(saved.cellW)
-    if (saved.cellH) setCellH(saved.cellH)
-    if (saved.bgStrategy) setBgStrategy(saved.bgStrategy)
-    if (saved.chromaKeyBgColor) setChromaKeyBgColor(saved.chromaKeyBgColor)
-    if (saved.manualBgColor) setManualBgColor(saved.manualBgColor)
-    if (saved.backgroundThreshold != null) setBackgroundThreshold(saved.backgroundThreshold)
-    if (saved.mainImage) setMainImage(saved.mainImage)
-    if (saved.tabImage) setTabImage(saved.tabImage)
+      if (saved.stickerTypeKey) setStickerTypeKey(saved.stickerTypeKey)
+      if (saved.gridCols) setGridCols(saved.gridCols)
+      if (saved.gridRows) setGridRows(saved.gridRows)
+      if (saved.cellW) setCellW(saved.cellW)
+      if (saved.cellH) setCellH(saved.cellH)
+      if (saved.bgStrategy) setBgStrategy(saved.bgStrategy)
+      if (saved.chromaKeyBgColor) setChromaKeyBgColor(saved.chromaKeyBgColor)
+      if (saved.manualBgColor) setManualBgColor(saved.manualBgColor)
+      if (saved.backgroundThreshold != null) setBackgroundThreshold(saved.backgroundThreshold)
+      if (saved.mainImage) setMainImage(saved.mainImage)
+      if (saved.tabImage) setTabImage(saved.tabImage)
 
-    // Restore grid image — handleSplit will be triggered via the ref below
-    setUploadedGridImage(saved.uploadedGridImage)
+      setUploadedGridImage(saved.uploadedGridImage)
 
-    // Store excluded cells for after split completes
-    pendingRestoreRef.current = {
-      excludedCells: saved.excludedCells || [],
-      cols: saved.gridCols,
-      rows: saved.gridRows,
-      cellW: saved.cellW,
-      cellH: saved.cellH,
-      bgStrategy: saved.bgStrategy,
-      chromaKeyBgColor: saved.chromaKeyBgColor,
-      manualBgColor: saved.manualBgColor,
-      backgroundThreshold: saved.backgroundThreshold,
-    }
+      pendingRestoreRef.current = {
+        excludedCells: saved.excludedCells || [],
+        cols: saved.gridCols,
+        rows: saved.gridRows,
+        cellW: saved.cellW,
+        cellH: saved.cellH,
+        bgStrategy: saved.bgStrategy,
+        chromaKeyBgColor: saved.chromaKeyBgColor,
+        manualBgColor: saved.manualBgColor,
+        backgroundThreshold: saved.backgroundThreshold,
+      }
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // run once on mount only
 
@@ -364,7 +362,7 @@ export default function ImportPipelinePage({ setPage }) {
   }, [uploadedGridImage, handleSplit, toggleExcluded])
 
   const handleClearStorage = useCallback(() => {
-    clear()
+    clear().catch(() => {})
     setUploadedGridImage(null)
     reset()
     hasRestoredSplitRef.current = false

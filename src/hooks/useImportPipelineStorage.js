@@ -1,17 +1,24 @@
 import { useCallback } from 'react'
 
-const STORAGE_KEY = 'stampmill_import_pipeline_v1'
+const DB_NAME = 'stampmill'
+const STORE = 'import_pipeline'
+const KEY = 'v1'
 
-/**
- * useImportPipelineStorage
- *
- * Handles localStorage persistence for ImportPipelinePage.
- * processedCells are intentionally NOT stored (too large, ~8MB).
- * On restore they are recomputed from uploadedGridImage + settings.
- */
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1)
+    req.onupgradeneeded = (e) => {
+      e.target.result.createObjectStore(STORE)
+    }
+    req.onsuccess = (e) => resolve(e.target.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
 export function useImportPipelineStorage() {
-  const save = useCallback((data) => {
+  const save = useCallback(async (data) => {
     try {
+      const db = await openDB()
       const payload = {
         uploadedGridImage: data.uploadedGridImage ?? null,
         gridCols: data.gridCols,
@@ -23,30 +30,44 @@ export function useImportPipelineStorage() {
         chromaKeyBgColor: data.chromaKeyBgColor,
         manualBgColor: data.manualBgColor,
         backgroundThreshold: data.backgroundThreshold,
-        excludedCells: data.excludedCells,   // number[]
+        excludedCells: data.excludedCells,
         mainImage: data.mainImage ?? null,
         tabImage: data.tabImage ?? null,
       }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite')
+        const req = tx.objectStore(STORE).put(payload, KEY)
+        req.onsuccess = resolve
+        req.onerror = () => reject(req.error)
+      })
     } catch (err) {
-      // Silently ignore — quota exceeded or private mode
-      console.warn('[ImportPipeline] localStorage save failed:', err)
+      console.warn('[ImportPipeline] IndexedDB save failed:', err)
     }
   }, [])
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (!raw) return null
-      return JSON.parse(raw)
+      const db = await openDB()
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly')
+        const req = tx.objectStore(STORE).get(KEY)
+        req.onsuccess = () => resolve(req.result ?? null)
+        req.onerror = () => reject(req.error)
+      })
     } catch {
       return null
     }
   }, [])
 
-  const clear = useCallback(() => {
+  const clear = useCallback(async () => {
     try {
-      localStorage.removeItem(STORAGE_KEY)
+      const db = await openDB()
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite')
+        const req = tx.objectStore(STORE).delete(KEY)
+        req.onsuccess = resolve
+        req.onerror = () => reject(req.error)
+      })
     } catch {
       // ignore
     }
