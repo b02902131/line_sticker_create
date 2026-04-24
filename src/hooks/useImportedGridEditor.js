@@ -213,7 +213,6 @@ export function useImportedGridEditor({
   // startIndex: first cell index (for ImportPipeline always 0 since all cells shown at once)
   const handleMultiCropAdjustConfirm = useCallback(async (cells, { startIndex = 0 } = {}) => {
     try {
-      const bgColor = bgStrategy === 'color' ? manualBgColor : chromaKeyBgColor
       const newRaws = [...rawCells]
       const newProcessed = [...processedCells]
       const newHistory = { ...cropAdjustHistory }
@@ -230,9 +229,7 @@ export function useImportedGridEditor({
           x, y, zoom, gridCols, gridRows
         )
         newRaws[cellIndex] = newRaw
-        newProcessed[cellIndex] = bgStrategy === 'none'
-          ? newRaw
-          : await removeBackgroundSimple(newRaw, backgroundThreshold, null, { bgColor })
+        newProcessed[cellIndex] = newRaw
       }
 
       setCropAdjustHistory(newHistory)
@@ -241,7 +238,7 @@ export function useImportedGridEditor({
     } catch (err) {
       alert('批次裁切調整失敗: ' + err.message)
     }
-  }, [rawCells, processedCells, cropAdjustHistory, uploadedGridImage, gridCols, gridRows, cellW, cellH, bgStrategy, manualBgColor, chromaKeyBgColor, backgroundThreshold])
+  }, [rawCells, processedCells, cropAdjustHistory, uploadedGridImage, gridCols, gridRows, cellW, cellH])
 
   // ---- Excluded cells ----
   const toggleExcluded = useCallback((cellIndex) => {
