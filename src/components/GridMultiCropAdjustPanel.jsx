@@ -252,7 +252,7 @@ export default function GridMultiCropAdjustPanel({
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'stretch', overflow: 'hidden' }}>
+        <div className="multi-crop-body" style={{ display: 'flex', gap: '12px', alignItems: 'stretch', overflow: 'hidden' }}>
           <div style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
             <canvas
               ref={canvasRef}
@@ -263,7 +263,7 @@ export default function GridMultiCropAdjustPanel({
               onWheel={handleWheel}
             />
           </div>
-          <div style={{ width: '260px', flexShrink: 0, borderLeft: '1px solid #eee', paddingLeft: '12px' }}>
+          <div className="multi-crop-controls" style={{ width: '260px', flexShrink: 0, borderLeft: '1px solid #eee', paddingLeft: '12px' }}>
             <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>縮放（套用到已選筐）</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button className="btn btn-secondary btn-inline" onClick={() => setCells(prev => prev.map((c, i) => selected.has(i) ? { ...c, zoom: Math.max(minZoom, (c.zoom || 1) - zoomStep) } : c))}>−</button>

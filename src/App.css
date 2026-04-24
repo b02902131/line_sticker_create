@@ -777,4 +777,17 @@
     width: 100% !important;
     min-width: unset !important;
   }
+
+  .multi-crop-body {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+
+  .multi-crop-controls {
+    width: 100% !important;
+    border-left: none !important;
+    border-top: 1px solid #eee;
+    padding-left: 0 !important;
+    padding-top: 12px;
+  }
 }
