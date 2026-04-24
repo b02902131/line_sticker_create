@@ -9,9 +9,11 @@ const gitHash = (() => {
 })()
 const buildDate = new Date().toISOString().slice(0, 10)
 
+const base = process.env.VITE_BASE_PATH || '/line_sticker_create/'
+
 export default defineConfig({
   plugins: [react(), localSavePlugin()],
-  base: '/line_sticker_create/',
+  base,
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __GIT_HASH__: JSON.stringify(gitHash),

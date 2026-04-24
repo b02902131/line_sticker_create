@@ -8,6 +8,8 @@
     "preview": "vite preview",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
+    "build:dev": "VITE_BASE_PATH=/line_sticker_create/dev/ vite build",
+    "deploy:dev": "npm run build:dev && gh-pages -d dist --dest dev",
     "line-sticker-text": "node scripts/line-sticker-text.mjs"
   },
   "dependencies": {
