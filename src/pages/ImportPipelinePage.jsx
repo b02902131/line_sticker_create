@@ -4,6 +4,7 @@ import { useClickRemoveEditor } from '../hooks/useClickRemoveEditor'
 import { useImportPipelineStorage } from '../hooks/useImportPipelineStorage'
 import CropAdjustPanel from '../components/CropAdjustPanel'
 import GridMultiCropAdjustPanel from '../components/GridMultiCropAdjustPanel'
+import CropModal from '../components/CropModal'
 import { downloadAsZip, fitToSize } from '../utils/zipDownloader'
 import { fileToDataURL, removeBackgroundSimple } from '../utils/imageUtils'
 import { STICKER_SPECS, getSpec, DEFAULT_SPEC_KEY } from '../utils/stickerSpecs'
@@ -382,6 +383,7 @@ export default function ImportPipelinePage({ setPage }) {
   // ---- Multi-crop panel ----
   const [showMultiCrop, setShowMultiCrop] = useState(false)
   const [cellMenuOpen, setCellMenuOpen] = useState(null)
+  const [cropModalTarget, setCropModalTarget] = useState(null) // null | { type: 'main'|'tab', w: number, h: number }
 
   // ---- Main / Tab upload refs ----
   const mainUploadRef = useRef(null)
@@ -945,7 +947,7 @@ export default function ImportPipelinePage({ setPage }) {
                     />
                   </label>
                   {mainImage && (
-                    <button className="btn btn-secondary btn-inline" style={{ fontSize: '0.8em' }} onClick={() => setClickRemoveTarget({ type: 'main' })}>去背</button>
+                    <button className="btn btn-secondary btn-inline" style={{ fontSize: '0.8em' }} onClick={() => setCropModalTarget({ type: 'main', w: 240, h: 240 })}>裁切</button>
                   )}
                 </div>
               </div>
@@ -988,7 +990,7 @@ export default function ImportPipelinePage({ setPage }) {
                     />
                   </label>
                   {tabImage && (
-                    <button className="btn btn-secondary btn-inline" style={{ fontSize: '0.8em' }} onClick={() => setClickRemoveTarget({ type: 'tab' })}>去背</button>
+                    <button className="btn btn-secondary btn-inline" style={{ fontSize: '0.8em' }} onClick={() => setCropModalTarget({ type: 'tab', w: 96, h: 74 })}>裁切</button>
                   )}
                 </div>
               </div>
@@ -1110,6 +1112,20 @@ export default function ImportPipelinePage({ setPage }) {
             await handleMultiCropAdjustConfirm(cells, { startIndex: 0 })
           }}
           onCancel={() => setShowMultiCrop(false)}
+        />
+      )}
+
+      {cropModalTarget && (
+        <CropModal
+          image={cropModalTarget.type === 'main' ? mainImage : tabImage}
+          targetW={cropModalTarget.w}
+          targetH={cropModalTarget.h}
+          onApply={(url) => {
+            if (cropModalTarget.type === 'main') setMainImage(url)
+            else setTabImage(url)
+            setCropModalTarget(null)
+          }}
+          onCancel={() => setCropModalTarget(null)}
         />
       )}
 
