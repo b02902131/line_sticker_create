@@ -933,7 +933,7 @@ export default function ImportPipelinePage({ setPage }) {
                     未設定
                   </div>
                 )}
-                <div style={{ marginTop: '6px' }}>
+                <div style={{ marginTop: '6px', display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'center' }}>
                   <label className="btn btn-secondary btn-inline" style={{ fontSize: '0.8em', cursor: 'pointer' }}>
                     上傳主圖
                     <input
@@ -944,6 +944,9 @@ export default function ImportPipelinePage({ setPage }) {
                       style={{ display: 'none' }}
                     />
                   </label>
+                  {mainImage && (
+                    <button className="btn btn-secondary btn-inline" style={{ fontSize: '0.8em' }} onClick={() => setClickRemoveTarget({ type: 'main' })}>去背</button>
+                  )}
                 </div>
               </div>
             )}
@@ -973,7 +976,7 @@ export default function ImportPipelinePage({ setPage }) {
                     未設定
                   </div>
                 )}
-                <div style={{ marginTop: '6px' }}>
+                <div style={{ marginTop: '6px', display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'center' }}>
                   <label className="btn btn-secondary btn-inline" style={{ fontSize: '0.8em', cursor: 'pointer' }}>
                     上傳 Tab 圖
                     <input
@@ -984,6 +987,9 @@ export default function ImportPipelinePage({ setPage }) {
                       style={{ display: 'none' }}
                     />
                   </label>
+                  {tabImage && (
+                    <button className="btn btn-secondary btn-inline" style={{ fontSize: '0.8em' }} onClick={() => setClickRemoveTarget({ type: 'tab' })}>去背</button>
+                  )}
                 </div>
               </div>
             )}
