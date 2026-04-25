@@ -42,7 +42,6 @@ async function callGptImage2(apiKey, prompt, opts = {}) {
     size,
     quality,
     output_format: 'png',
-    response_format: 'b64_json',
   }
 
   const controller = new AbortController()
@@ -98,7 +97,6 @@ async function callGptImage2Edit(apiKey, prompt, imageDataUrls, opts = {}) {
   form.append('n', '1')
   form.append('size', size)
   form.append('quality', quality)
-  form.append('response_format', 'b64_json')
 
   const validImages = (imageDataUrls || []).filter(Boolean)
   if (validImages.length === 0) {

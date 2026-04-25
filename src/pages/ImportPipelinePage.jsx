@@ -643,6 +643,7 @@ export default function ImportPipelinePage({ setPage }) {
             { key: 'auto', label: '自動偵測背景色' },
             { key: 'color', label: '手動指定背景色' },
             { key: 'none', label: '不去背（已透明）' },
+            { key: 'grid-manual', label: '點選去背' },
           ].map(opt => (
             <button
               key={opt.key}
@@ -715,10 +716,11 @@ export default function ImportPipelinePage({ setPage }) {
           <div style={{ color: '#888', fontSize: '0.9em' }}>圖片已包含透明背景，直接分割使用。</div>
         )}
 
-        {uploadedGridImage && (
-          <div style={{ marginTop: '12px', marginBottom: '8px' }}>
+        {bgStrategy === 'grid-manual' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <button
               className="btn btn-secondary btn-inline"
+              disabled={!uploadedGridImage}
               onClick={() => {
                 setGridClickRemoveUndoStack([])
                 setGridPickedColor(null)
@@ -727,10 +729,10 @@ export default function ImportPipelinePage({ setPage }) {
                 setGridClickRemoveTarget({ type: 'main' })
               }}
             >
-              對宮格圖去背
+              開啟去背介面
             </button>
-            <span style={{ marginLeft: '8px', color: '#888', fontSize: '0.85em' }}>
-              分割前先用 flood 點擊或框選去背整張宮格圖
+            <span style={{ color: '#888', fontSize: '0.85em' }}>
+              先對整張宮格圖點選去背，再點「分割」
             </span>
           </div>
         )}
@@ -738,11 +740,11 @@ export default function ImportPipelinePage({ setPage }) {
         <div style={{ marginTop: '12px' }}>
           <button
             className="btn btn-primary"
-            onClick={handleSplit}
+            onClick={() => handleSplit(bgStrategy === 'grid-manual' ? { bgStrategyOverride: 'none' } : undefined)}
             disabled={!uploadedGridImage || splitting}
             style={{ marginRight: '8px' }}
           >
-            {splitting ? '分割中...' : '分割 + 去背'}
+            {splitting ? '分割中...' : (bgStrategy === 'none' || bgStrategy === 'grid-manual') ? '分割' : '分割 + 去背'}
           </button>
           {hasCells && (
             <button
