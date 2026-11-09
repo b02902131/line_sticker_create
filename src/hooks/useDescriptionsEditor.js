@@ -190,7 +190,9 @@ export function useDescriptionsEditor({
       if (d.description?.trim()) return `${d.text}：${d.description}`
       return d.text || ''
     }).filter(Boolean).join('\n')
-    navigator.clipboard.writeText(text).then(() => {
+    // navigator.clipboard 在非 secure context（Tailscale http）不存在
+    const write = navigator.clipboard?.writeText ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard'))
+    write.then(() => {
       alert(`已複製 ${descriptions.length} 張貼圖文字到剪貼簿`)
     }).catch(() => {
       // fallback: 顯示在 textarea 讓使用者手動複製

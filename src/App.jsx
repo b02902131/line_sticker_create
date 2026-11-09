@@ -20,6 +20,7 @@ import { useStickerEditor } from './hooks/useStickerEditor'
 import { useDescriptionsEditor } from './hooks/useDescriptionsEditor'
 import { useClickRemoveEditor } from './hooks/useClickRemoveEditor'
 import { useAnimationEditor } from './hooks/useAnimationEditor'
+import { uuid } from './utils/uuid'
 
 const LS_KEY = 'stampmill_draft'
 
@@ -109,7 +110,7 @@ function App() {
     } else {
       // 新建角色
       const newChar = {
-        id: crypto.randomUUID(),
+        id: uuid(),
         name,
         description: characterDescription,
         theme,
@@ -197,7 +198,7 @@ function App() {
         }
         const imported = data.character
         // 給匯入的角色一個新 id 避免衝突
-        const newId = crypto.randomUUID()
+        const newId = uuid()
         const newChar = { ...imported, id: newId, importedAt: new Date().toISOString() }
         saveCharacters([newChar, ...characters])
         if (data.descriptions && data.descriptions.length > 0) {
