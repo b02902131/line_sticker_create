@@ -18,11 +18,13 @@ import { fileToDataURL } from '../utils/imageUtils'
  *                                            e.g. () => genMainImage(key, charImg, theme)
  *                                            e.g. () => createTabFromCharacter(charImg, threshold)
  * @param {boolean}  opts.applyBgOnGenerate - if true, bg-remove right after generate (default true)
+ * @param {Function} [opts.onGenerateError] - (error) => void；沒給就 alert
  */
 export function useSingleImageEditor({
   globalThreshold,
   generateFn,
   applyBgOnGenerate = true,
+  onGenerateError,
 } = {}) {
   const [image, setImage] = useState(null)         // processed (bg-removed)
   const [rawImage, setRawImage] = useState(null)   // original (no bg removal)
@@ -62,11 +64,12 @@ export function useSingleImageEditor({
         setImage(raw)
       }
     } catch (err) {
-      alert('重產失敗：' + err.message)
+      if (onGenerateError) onGenerateError(err)
+      else alert('重產失敗：' + err.message)
     } finally {
       setRegenerating(false)
     }
-  }, [generateFn, applyBgOnGenerate, effectiveThreshold])
+  }, [generateFn, applyBgOnGenerate, effectiveThreshold, onGenerateError])
 
   // --- bg removal ---
   const removeBg = useCallback(async () => {

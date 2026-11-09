@@ -27,6 +27,20 @@ function loadDraft() {
   try { return JSON.parse(localStorage.getItem(LS_KEY)) || {} } catch { return {} }
 }
 
+// OpenAI Key 只存在這個獨立的 localStorage pref，不進 draft（draft 可能被匯出 / 同步）
+const LS_IMAGE_PREFS = 'stampmill_image_prefs'
+function loadOpenaiKeyPref(draft) {
+  let prefs = {}
+  try { prefs = JSON.parse(localStorage.getItem(LS_IMAGE_PREFS)) || {} } catch { prefs = {} }
+  if (prefs.openaiKey) return prefs.openaiKey
+  // 舊版把 Key 存在 draft：搬出來（存檔 effect 之後會把 draft 裡的 Key 拿掉）
+  const legacy = draft?.openaiKey || ''
+  if (legacy) {
+    try { localStorage.setItem(LS_IMAGE_PREFS, JSON.stringify({ ...prefs, openaiKey: legacy })) } catch { /* ignore */ }
+  }
+  return legacy
+}
+
 function App() {
   const draft = useRef(loadDraft()).current
 
@@ -38,7 +52,14 @@ function App() {
 
   // 共用
   const [apiKey, setApiKey] = useState(draft.apiKey || '')
-  const [openaiKey, setOpenaiKey] = useState(draft.openaiKey || '')
+  const [openaiKey, setOpenaiKey] = useState(() => loadOpenaiKeyPref(draft))
+  useEffect(() => {
+    try {
+      let prefs = {}
+      try { prefs = JSON.parse(localStorage.getItem(LS_IMAGE_PREFS)) || {} } catch { prefs = {} }
+      localStorage.setItem(LS_IMAGE_PREFS, JSON.stringify({ ...prefs, openaiKey }))
+    } catch { /* private mode 等情況忽略 */ }
+  }, [openaiKey])
   // imageProvider: 'gemini' | 'openai'
   const [imageProvider, setImageProvider] = useState(draft.imageProvider || 'gemini')
 
@@ -278,9 +299,10 @@ function App() {
 
   // 自動暫存到 localStorage
   useEffect(() => {
-    const data = { apiKey, openaiKey, imageProvider, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacterId: selectedCharacter?.id }
+    // 注意：openaiKey 刻意不存 draft（存在 LS_IMAGE_PREFS）
+    const data = { apiKey, imageProvider, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacterId: selectedCharacter?.id }
     localStorage.setItem(LS_KEY, JSON.stringify(data))
-  }, [apiKey, openaiKey, imageProvider, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacter])
+  }, [apiKey, imageProvider, count, textStyle, excludedTexts, characterStance, stickerTypeKey, selectedCharacter])
 
   // descriptions by character
   useEffect(() => {
@@ -371,6 +393,17 @@ function App() {
 
   // ===== Image provider dispatch helpers =====
   const activeApiKey = imageProvider === 'openai' ? openaiKey : apiKey
+  const imageKeyMissingMsg = imageProvider === 'openai' ? '請輸入 OpenAI API Key（或切回 Gemini）' : '請輸入 Gemini API Key'
+
+  // 圖片生成錯誤對話框（附重試）。retry = { kind, args }，重試時用最新 render 的 handler
+  const [imageError, setImageError] = useState(null) // { title, message, retry }
+  const showImageError = useCallback((title, error, retry) => {
+    setImageError({ title, message: error?.message || String(error), retry: retry || null })
+  }, [])
+  const onMainGenerateError = useCallback(
+    (error) => showImageError('重產主要圖片失敗', error, { kind: 'main', args: [] }),
+    [showImageError]
+  )
   const genCharacter = (...args) =>
     imageProvider === 'openai' ? generateCharacterOpenAI(...args) : generateCharacter(...args)
   const genMainImage = (...args) =>
@@ -388,6 +421,7 @@ function App() {
       [activeApiKey, characterImage, theme, imageProvider] // eslint-disable-line react-hooks/exhaustive-deps
     ),
     applyBgOnGenerate: true,
+    onGenerateError: onMainGenerateError,
   })
 
   const tabEditor = useSingleImageEditor({
@@ -436,6 +470,7 @@ function App() {
     confirmEachGrid,
     setProgress,
     setCurrentStep,
+    onGenerateError: showImageError,
   })
 
   // Backward-compatible aliases — kept so all save/load/render paths keep working unchanged
@@ -530,6 +565,7 @@ function App() {
     getStickerThreshold,
     setStickerHistory: gridEditor.setStickerHistory,
     setProgress,
+    onGenerateError: showImageError,
   })
   const removingBgIndex = stickerEditor.removingBgIndex
   const handleRemoveBgSingle = stickerEditor.handleRemoveBgSingle
@@ -630,7 +666,7 @@ function App() {
   // 步驟 4: 生成角色
   const handleGenerateCharacter = async () => {
     if (!activeApiKey.trim()) {
-      alert(imageProvider === 'openai' ? '請輸入 OpenAI API Key' : '請輸入 Gemini API Key')
+      alert(imageKeyMissingMsg)
       return
     }
     if (!characterDescription.trim() && uploadedCharacterImages.length === 0) {
@@ -649,7 +685,7 @@ function App() {
       setProgress('角色生成完成，請確認是否符合要求')
     } catch (error) {
       console.error('生成角色失敗:', error)
-      alert(`生成角色失敗: ${error.message}`)
+      showImageError('生成角色失敗', error, { kind: 'character', args: [] })
       setProgress('')
     } finally {
       setGeneratingCharacter(false)
@@ -767,6 +803,10 @@ function App() {
   // 步驟 6-8: 生成8宮格、去背、裁切 — logic now in useGridEditor, aliases above
 
   const handleGenerateNextGrid = async () => {
+    if (!activeApiKey.trim()) {
+      alert(imageKeyMissingMsg)
+      return
+    }
     if (!characterImage) {
       alert('請先生成或上傳角色圖片')
       return
@@ -786,7 +826,7 @@ function App() {
       await generateOneGridAt(nextIndex)
     } catch (error) {
       console.error('生成失敗:', error)
-      alert(`生成失敗: ${error.message}`)
+      showImageError(`生成第 ${nextIndex + 1} 組八宮格失敗`, error, { kind: 'nextGrid', args: [] })
       setProgress('')
     } finally {
       setLoading(false)
@@ -794,6 +834,10 @@ function App() {
   }
 
   const handleGenerateStickers = async () => {
+    if (!activeApiKey.trim()) {
+      alert(imageKeyMissingMsg)
+      return
+    }
     if (!characterImage) {
       alert('請先生成或上傳角色圖片')
       return
@@ -892,6 +936,8 @@ function App() {
             )
           } catch (error) {
             retryCount++
+            // Key 無效 / 額度不足 / 內容政策：重試也沒用（OpenAI 還會白扣錢），直接停
+            if (error?.retryable === false) throw error
             if (retryCount < maxRetries) {
               // 檢查是否為 overloaded 錯誤，使用更長的等待時間
               const isOverloaded = error.message && (
@@ -935,7 +981,7 @@ function App() {
       setProgress('去背完成，請調整去背程度後點擊「下一步」進行裁切')
     } catch (error) {
       console.error('生成失敗:', error)
-      alert(`生成失敗: ${error.message}`)
+      showImageError('生成貼圖失敗', error, { kind: 'stickers', args: [] })
       setProgress('')
     } finally {
       setLoading(false)
@@ -1025,7 +1071,7 @@ function App() {
       setProgress('完成！所有貼圖已生成，可以下載了')
     } catch (error) {
       console.error('處理失敗:', error)
-      alert(`處理失敗: ${error.message}`)
+      showImageError('裁切 / 生成主要圖片失敗', error, { kind: 'split', args: [] })
       setProgress('')
     } finally {
       setLoading(false)
@@ -1140,6 +1186,20 @@ function App() {
   // 標籤圖片去背 — delegated to tabEditor.removeBg
   const handleRemoveTabBg = tabEditor.removeBg
 
+  // 錯誤對話框「重試」：用這次 render 的 handler（避免抓到舊 state）
+  const retryImageAction = ({ kind, args = [] }) => {
+    const handlers = {
+      character: handleGenerateCharacter,
+      stickers: handleGenerateStickers,
+      nextGrid: handleGenerateNextGrid,
+      grid: handleRegenerateGrid,
+      sticker: handleRegenerateSingleSticker,
+      main: mainEditor.regenerate,
+      split: handleSplitGrids,
+    }
+    handlers[kind]?.(...args)
+  }
+
   return (
     <div className="app">
       <div className="container">
@@ -1160,6 +1220,8 @@ function App() {
               </label>
               <input
                 type="password"
+                data-testid="image-api-key"
+                autoComplete="off"
                 value={imageProvider === 'openai' ? openaiKey : apiKey}
                 onChange={(e) => imageProvider === 'openai' ? setOpenaiKey(e.target.value) : setApiKey(e.target.value)}
                 placeholder={imageProvider === 'openai' ? '請輸入您的 OpenAI API Key (sk-...)' : '請輸入您的 Gemini API Key'}
@@ -1170,11 +1232,13 @@ function App() {
               <button
                 className={`btn ${imageProvider === 'gemini' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ padding: '8px 12px', fontSize: '0.85em', whiteSpace: 'nowrap' }}
+                data-testid="provider-gemini"
                 onClick={() => setImageProvider('gemini')}
               >Gemini</button>
               <button
                 className={`btn ${imageProvider === 'openai' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ padding: '8px 12px', fontSize: '0.85em', whiteSpace: 'nowrap' }}
+                data-testid="provider-openai"
                 onClick={() => setImageProvider('openai')}
               >gpt-image-2</button>
             </div>
@@ -1185,6 +1249,21 @@ function App() {
             </div>
           )}
         </div>
+
+        {imageError && (
+          <div data-testid="image-error-overlay" onClick={() => setImageError(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+            <div data-testid="image-error" role="alertdialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ width: 'min(520px, 100%)', boxSizing: 'border-box', background: '#fff', borderRadius: '10px', padding: '16px 18px', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
+              <strong style={{ color: '#b42318', fontSize: '1.05em' }}>{imageError.title}</strong>
+              <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.9em', margin: '8px 0 14px', color: '#333', maxHeight: '240px', overflow: 'auto', wordBreak: 'break-word' }}>{imageError.message}</div>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary btn-inline" onClick={() => setImageError(null)}>關閉</button>
+                {imageError.retry && (
+                  <button className="btn btn-primary btn-inline" onClick={() => { const retry = imageError.retry; setImageError(null); retryImageAction(retry) }}>重試</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ===== 首頁 ===== */}
         {page === 'home' && (

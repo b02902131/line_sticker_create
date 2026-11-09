@@ -24,6 +24,7 @@ import { splitGrid8, cropSingleCell } from '../utils/imageUtils'
  * @param {boolean}  opts.confirmEachGrid
  * @param {Function} opts.setProgress         - (msg) => void
  * @param {Function} opts.setCurrentStep      - (step) => void
+ * @param {Function} [opts.onGenerateError] - (title, error, retry:{kind,args}) => void；沒給就 alert
  */
 export function useGridEditor({
   generateFn,
@@ -38,6 +39,7 @@ export function useGridEditor({
   confirmEachGrid,
   setProgress,
   setCurrentStep,
+  onGenerateError,
 } = {}) {
   // ---- Core image state ----
   const [gridImages, setGridImages] = useState([])
@@ -243,6 +245,8 @@ export function useGridEditor({
         )
       } catch (error) {
         retryCount++
+        // Key 無效 / 額度不足 / 內容政策：重試也沒用（OpenAI 還會白扣錢），直接停
+        if (error?.retryable === false) throw error
         if (retryCount < maxRetries) {
           const isOverloaded = error.message && (
             error.message.includes('overloaded') ||
@@ -369,7 +373,8 @@ export function useGridEditor({
       setProgress(`第 ${gridIndex + 1} 組八宮格已重新生成`)
     } catch (error) {
       console.error('重新生成八宮格失敗:', error)
-      alert(`重新生成失敗: ${error.message}`)
+      if (onGenerateError) onGenerateError(`重新生成第 ${gridIndex + 1} 組八宮格失敗`, error, { kind: 'grid', args: [gridIndex, opts] })
+      else alert(`重新生成失敗: ${error.message}`)
       setProgress('')
     } finally {
       setRegeneratingGrid(null)
@@ -377,7 +382,7 @@ export function useGridEditor({
   }, [
     generateFn, activeApiKey, characterImage, textStyle, gridImages, processedGridImages,
     cutImages, descriptions, backgroundThreshold, chromaKeyBgColor, stickerSpec,
-    hasAnyCropAdjustInRange, getCropAdjust, setProgress,
+    hasAnyCropAdjustInRange, getCropAdjust, setProgress, onGenerateError,
   ])
 
   // ---- handleRemoveBgGrid ----

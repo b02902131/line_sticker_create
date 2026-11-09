@@ -24,6 +24,7 @@ import { removeBackgroundSimple } from '../utils/imageUtils'
  * @param {Function} opts.getStickerThreshold - (idx) => number, from gridEditor
  * @param {Function} opts.setStickerHistory   - from gridEditor
  * @param {Function} opts.setProgress         - (msg) => void
+ * @param {Function} [opts.onGenerateError] - (title, error, retry:{kind,args}) => void；沒給就 alert
  */
 export function useStickerEditor({
   generateFn,
@@ -40,6 +41,7 @@ export function useStickerEditor({
   getStickerThreshold,
   setStickerHistory,
   setProgress,
+  onGenerateError,
 } = {}) {
   // ---- Single-sticker bg removal ----
   const [removingBgIndex, setRemovingBgIndex] = useState(null)
@@ -177,7 +179,8 @@ export function useStickerEditor({
       setProgress('')
     } catch (error) {
       console.error('重新生成貼圖失敗:', error)
-      alert(`重新生成失敗: ${error.message}`)
+      if (onGenerateError) onGenerateError(`重新生成第 ${stickerIndex + 1} 張貼圖失敗`, error, { kind: 'sticker', args: [stickerIndex, opts] })
+      else alert(`重新生成失敗: ${error.message}`)
       setProgress('')
     } finally {
       setRegeneratingIndex(null)
